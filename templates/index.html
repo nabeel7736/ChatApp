@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<body>
+<h2>Go Chat</h2>
+
+<input id="msg" placeholder="Type message..." />
+<button onclick="sendMsg()">Send</button>
+
+<ul id="chat"></ul>
+
+<script>
+    let ws = new WebSocket("ws://localhost:8080/ws");
+
+    ws.onmessage = (event) => {
+        let li = document.createElement("li");
+        li.innerText = event.data;
+        document.getElementById("chat").appendChild(li);
+    }
+
+    function sendMsg() {
+        let msg = document.getElementById("msg").value;
+        ws.send(msg);
+        document.getElementById("msg").value = "";
+    }
+</script>
+</body>
+</html>
