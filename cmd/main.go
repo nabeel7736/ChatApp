@@ -4,9 +4,13 @@ import (
 	"chatapp/internal/db"
 	"chatapp/internal/models"
 	"chatapp/internal/routes"
-	websocket "chatapp/internal/websoaket"
+	"chatapp/internal/websocket"
+	"fmt"
+	"log"
+	"os"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func main() {
@@ -14,7 +18,12 @@ func main() {
 	db.ConnectDB()
 
 	// 2. Auto migrate
-	db.DB.AutoMigrate(&models.Message{})
+	// db.DB.AutoMigrate(&models.Message{})
+
+	// migrate
+	if err := Migrate(db.DB); err != nil {
+		log.Fatalf("migration failed: %v", err)
+	}
 
 	// 3. WebSocket hub
 	hub := websocket.NewHub()
@@ -24,5 +33,14 @@ func main() {
 	r := gin.Default()
 	routes.RegisterRoutes(r, hub)
 
-	r.Run(":8080")
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	addr := fmt.Sprintf(":%s", port)
+	log.Printf("server running on %s", addr)
+	r.Run(addr)
+}
+func Migrate(db *gorm.DB) error {
+	return db.AutoMigrate(&models.Message{})
 }
