@@ -1,27 +1,87 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
+<head>
+  <meta charset="utf-8" />
+  <title>Realtime Chat - Demo</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    #messages { border: 1px solid #ccc; height: 300px; overflow: auto; padding: 8px; }
+    #input { width: 80%; }
+  </style>
+</head>
 <body>
-<h2>Go Chat</h2>
+  <h2>Realtime Chat Demo</h2>
 
-<input id="msg" placeholder="Type message..." />
-<button onclick="sendMsg()">Send</button>
+  <div>
+    <label>Email: <input id="email" value="test@example.com"></label><br />
+    <label>Password: <input id="password" value="password123"></label><br />
+    <button id="register">Register</button>
+    <button id="login">Login</button>
+  </div>
 
-<ul id="chat"></ul>
+  <hr />
+  <div>
+    <button id="connect">Connect WebSocket</button>
+    <button id="disconnect">Disconnect</button>
+  </div>
+  <div id="messages"></div>
+  <input id="input" placeholder="Type a message" />
+  <button id="send">Send</button>
 
 <script>
-    let ws = new WebSocket("ws://localhost:8080/ws");
+let token = null;
+let ws = null;
+const append = (text) => {
+  const d = document.createElement('div'); d.innerText = text;
+  document.getElementById('messages').appendChild(d);
+}
 
-    ws.onmessage = (event) => {
-        let li = document.createElement("li");
-        li.innerText = event.data;
-        document.getElementById("chat").appendChild(li);
-    }
+document.getElementById('register').onclick = async () => {
+  const res = await fetch('/api/register', {
+    method: 'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({username: 'demo', email: document.getElementById('email').value, password: document.getElementById('password').value})
+  });
+  const data = await res.json();
+  append('register: ' + JSON.stringify(data));
+  if(data.token) token = data.token;
+}
 
-    function sendMsg() {
-        let msg = document.getElementById("msg").value;
-        ws.send(msg);
-        document.getElementById("msg").value = "";
-    }
+document.getElementById('login').onclick = async () => {
+  const res = await fetch('/api/login', {
+    method: 'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ email: document.getElementById('email').value, password: document.getElementById('password').value })
+  });
+  const data = await res.json();
+  append('login: ' + JSON.stringify(data));
+  if(data.token) token = data.token;
+}
+
+document.getElementById('connect').onclick = () => {
+  if(!token) { append('You need to login first'); return; }
+  // Connect via Authorization header is not natively supported in WS from browsers;
+  // So include token as query param for this demo: /ws?token=...
+  const url = `ws${location.protocol === 'https:' ? 's' : ''}://${location.host}/api/ws?token=${token}`;
+  ws = new WebSocket(url);
+  ws.onopen = () => append('ws opened');
+  ws.onmessage = (e) => append('recv: ' + e.data);
+  ws.onclose = () => append('ws closed');
+  ws.onerror = (e) => append('ws error ' + JSON.stringify(e));
+}
+
+document.getElementById('disconnect').onclick = () => {
+  if(ws) ws.close();
+}
+
+document.getElementById('send').onclick = () => {
+  const v = document.getElementById('input').value;
+  if(ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(v);
+    append('sent: ' + v);
+    document.getElementById('input').value = '';
+  } else append('ws not open');
+}
 </script>
 </body>
 </html>

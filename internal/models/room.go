@@ -6,11 +6,10 @@ import (
 	"gorm.io/gorm"
 )
 
-type Message struct {
+type Room struct {
 	ID        uint           `gorm:"primaryKey" json:"id"`
-	RoomID    uint           `gorm:"index" json:"room_id"`
-	SenderID  uint           `gorm:"index" json:"sender_id"`
-	Content   string         `gorm:"type:text" json:"content"`
+	Name      string         `gorm:"uniqueIndex;not null" json:"name"`
+	IsPrivate bool           `json:"is_private"`
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`

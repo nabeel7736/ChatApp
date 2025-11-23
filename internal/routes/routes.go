@@ -1,19 +1,44 @@
 package routes
 
 import (
+	"chatapp/internal/config"
 	"chatapp/internal/controllers"
+	middleware "chatapp/internal/middlewares"
+	"chatapp/internal/services"
 	"chatapp/internal/websocket"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
-func RegisterRoutes(r *gin.Engine, hub *websocket.Hub) {
-	r.GET("/", func(ctx *gin.Context) {
-		ctx.File("templates/index.html")
-	})
-	r.GET("/messages", controllers.GetMessages)
+func SetupRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
+	r := gin.Default()
 
-	r.GET("/ws", func(c *gin.Context) {
-		websocket.ServeWs(hub, c.Writer, c.Request)
-	})
+	jwtSvc := services.NewJWTService(cfg.JWTSecret)
+	authCtrl := &controllers.AuthController{DB: db, JWT: jwtSvc}
+	chatCtrl := &controllers.ChatController{DB: db}
+
+	// Public
+	public := r.Group("/api")
+	{
+		public.POST("/register", authCtrl.Register)
+		public.POST("/login", authCtrl.Login)
+		public.GET("/rooms", chatCtrl.ListRooms)
+	}
+
+	// Protected
+	protected := r.Group("/api")
+	protected.Use(middleware.JWTAuth(jwtSvc))
+	{
+		protected.POST("/rooms", chatCtrl.CreateRoom)
+		// websocket endpoint (requires Authorization header or prior auth)
+		protected.GET("/ws", func(c *gin.Context) {
+			websocket.ServeWS(c)
+		})
+	}
+
+	// health
+	r.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
+
+	return r
 }
