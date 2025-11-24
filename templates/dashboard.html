@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - ChatApp</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 h-screen flex flex-col">
+    <nav class="bg-blue-600 p-4 text-white flex justify-between items-center shadow-md">
+        <h1 class="text-xl font-bold">ChatApp Dashboard</h1>
+        <div>
+            <span id="usernameDisplay" class="mr-4 font-semibold"></span>
+            <button id="logoutBtn" class="bg-red-500 px-3 py-1 rounded hover:bg-red-600 text-sm">Logout</button>
+        </div>
+    </nav>
+
+    <div class="container mx-auto p-6 flex-1">
+        
+        <div class="mb-8 bg-white p-4 rounded shadow">
+            <h3 class="text-lg font-bold mb-4">Create New Room</h3>
+            <div class="flex gap-2">
+                <input type="text" id="newRoomName" placeholder="Room Name" class="flex-1 px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button id="createRoomBtn" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">Create</button>
+            </div>
+        </div>
+
+        <h3 class="text-lg font-bold mb-4 text-gray-700">Available Rooms</h3>
+        <div id="roomsList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            </div>
+    </div>
+
+    <script>
+        const token = localStorage.getItem('token');
+        const user = JSON.parse(localStorage.getItem('user'));
+
+        if (!token) window.location.href = '/login';
+        document.getElementById('usernameDisplay').innerText = user ? user.username : 'User';
+
+        document.getElementById('logoutBtn').onclick = () => {
+            localStorage.clear();
+            window.location.href = '/login';
+        };
+
+        const fetchRooms = async () => {
+            const res = await fetch('/api/rooms');
+            const data = await res.json();
+            const list = document.getElementById('roomsList');
+            list.innerHTML = '';
+            
+            data.rooms.forEach(room => {
+                const div = document.createElement('div');
+                div.className = 'bg-white p-6 rounded shadow hover:shadow-lg transition cursor-pointer border-l-4 border-blue-500';
+                div.innerHTML = `
+                    <h4 class="text-xl font-bold text-gray-800">${room.name}</h4>
+                    <p class="text-gray-500 text-sm mt-2">ID: ${room.id}</p>
+                `;
+                div.onclick = () => window.location.href = `/chat?room_id=${room.id}&room_name=${room.name}`;
+                list.appendChild(div);
+            });
+        };
+
+        document.getElementById('createRoomBtn').onclick = async () => {
+            const name = document.getElementById('newRoomName').value;
+            if(!name) return;
+
+            const res = await fetch('/api/rooms', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ name })
+            });
+
+            if(res.ok) {
+                document.getElementById('newRoomName').value = '';
+                fetchRooms();
+            } else {
+                alert('Failed to create room');
+            }
+        };
+
+        fetchRooms();
+    </script>
+</body>
+</html>
