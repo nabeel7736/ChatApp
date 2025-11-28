@@ -21,9 +21,17 @@ var upgrader = websocket.Upgrader{
 }
 
 type WSMessage struct {
+	Type      string `json:"type"`
+	ID        uint   `json:"id,omitempty"`
 	Sender    string `json:"sender"`
 	Content   string `json:"content"`
 	Timestamp string `json:"timestamp"`
+}
+
+type IncomingMessage struct {
+	Type    string `json:"type"` // "chat" or "delete"
+	Content string `json:"content,omitempty"`
+	MsgID   uint   `json:"msg_id,omitempty"` // ID of message to delete
 }
 
 func ServeWS(c *gin.Context, db *gorm.DB) {
@@ -32,6 +40,7 @@ func ServeWS(c *gin.Context, db *gorm.DB) {
 	userIDInterface, _ := c.Get("claims")
 	var userID uint
 	var username string
+
 	if userIDInterface != nil {
 		if claims, ok := userIDInterface.(jwt.MapClaims); ok {
 			if uidf, ok := claims["user_id"].(float64); ok {
@@ -88,29 +97,53 @@ func (c *Client) reader(hub *Hub, db *gorm.DB) {
 			break
 		}
 
-		// 1. Save to Database
-		msgContent := string(msgBytes)
-		dbMessage := models.Message{
-			RoomID:   c.RoomID,
-			SenderID: c.UserID,
-			Content:  msgContent,
+		var inMsg IncomingMessage
+		if err := json.Unmarshal(msgBytes, &inMsg); err != nil {
+			log.Println("Invalid JSON:", err)
+			continue
 		}
-		db.Create(&dbMessage)
 
-		// 2. Prepare JSON for Broadcast (so frontend can display sender name)
-		outMsg := WSMessage{
-			Sender:    c.Username,
-			Content:   msgContent,
-			Timestamp: time.Now().Format("15:04"),
-		}
-		jsonBytes, _ := json.Marshal(outMsg)
+		if inMsg.Type == "delete" {
+			// Handle Deletion logic
+			var msg models.Message
+			if err := db.First(&msg, inMsg.MsgID).Error; err == nil {
+				if msg.SenderID == c.UserID {
+					db.Delete(&msg)
+					outMsg := WSMessage{
+						Type: "delete",
+						ID:   msg.ID,
+					}
+					jsonBytes, _ := json.Marshal(outMsg)
+					hub.Broadcast <- BroadcastMessage{
+						RoomID:  c.RoomID,
+						Content: jsonBytes,
+					}
+				}
+			}
+		} else {
+			dbMessage := models.Message{
+				RoomID:   c.RoomID,
+				SenderID: c.UserID,
+				Content:  inMsg.Content,
+			}
+			db.Create(&dbMessage)
 
-		// 3. Send to Hub with RoomID
-		hub.Broadcast <- BroadcastMessage{
-			RoomID:  c.RoomID,
-			Content: jsonBytes,
+			outMsg := WSMessage{
+				Type:      "chat",
+				ID:        dbMessage.ID,
+				Sender:    c.Username,
+				Content:   inMsg.Content,
+				Timestamp: time.Now().Format("15:04"),
+			}
+			jsonBytes, _ := json.Marshal(outMsg)
+
+			hub.Broadcast <- BroadcastMessage{
+				RoomID:  c.RoomID,
+				Content: jsonBytes,
+			}
 		}
 	}
+
 }
 
 func (c *Client) writer() {

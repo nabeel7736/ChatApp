@@ -54,9 +54,29 @@
         const messagesDiv = document.getElementById('messages');
         let ws;
 
+        // 1. Fetch Chat History
+        async function loadHistory() {
+            try {
+                const res = await fetch(`/api/messages?room_id=${roomId}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                if(data.messages) {
+                    data.messages.forEach(msg => {
+                        const isOwn = msg.sender === currentUser.username;
+                        appendMessage(msg.id, msg.content, isOwn, msg.sender, false);
+                    });
+                }
+            } catch (err) {
+                console.error("Failed to load history", err);
+            }
+        }
+
+        // 2. Connect WebSocket
         function connect() {
             const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-            const url = `${protocol}://${location.host}/api/ws?token=${token}&room_id=${roomId}`;            
+            const url = `${protocol}://${location.host}/api/ws?token=${token}&room_id=${roomId}`;
+            
             ws = new WebSocket(url);
 
             ws.onopen = () => {
@@ -65,12 +85,32 @@
             };
 
             ws.onmessage = (e) => {
-                try{
-                    const data =JSON.parse(e.data)
-                    if(data.sender !== currentUser.username){
-                        appendMessage(data.content, false, data.sender);
+                try {
+                    const data = JSON.parse(e.data);
+                    
+                    if (data.type === 'delete') {
+                        // Handle Delete Event
+                        const el = document.getElementById(`msg-${data.id}`);
+                        if (el) el.remove();
+                    } else if (data.type === 'chat') {
+                        // Handle Chat Event
+                        // Don't append if it's our own message (we did optimistic UI)
+                        // UNLESS we refreshed and need the ID. 
+                        // Simplified: We allow duplicate check or just check sender
+                        if (data.sender !== currentUser.username) {
+                            appendMessage(data.id, data.content, false, data.sender);
+                        } else {
+                            // Find the optimistic message and update its ID
+                            const pending = document.querySelector('.pending-msg');
+                            if(pending) {
+                                pending.id = `msg-${data.id}`;
+                                pending.classList.remove('pending-msg');
+                                // Add delete button now that we have ID
+                                addDeleteButton(pending, data.id);
+                            }
+                        }
                     }
-                }catch (err){
+                } catch (err) {
                     console.error("Error parsing message:", err);
                 }
             };
@@ -78,28 +118,65 @@
             ws.onclose = () => {
                 statusEl.innerText = 'Disconnected';
                 statusEl.className = 'text-sm font-semibold text-red-600';
-                // Try reconnect in 5s
                 setTimeout(connect, 5000);
             };
         }
 
-        function appendMessage(text, isOwn, senderName = '' ) {
-            const div = document.createElement('div');
-            div.className = `flex flex-col ${isOwn ? 'items-end' : 'items-start'}`;
+        function addDeleteButton(container, msgId) {
+             const bubble = container.querySelector('.bubble');
+             // Double check we don't duplicate button
+             if(bubble.querySelector('.delete-btn')) return;
 
+             const btn = document.createElement('button');
+             btn.innerHTML = '×';
+             btn.className = 'delete-btn ml-2 text-red-400 hover:text-red-600 font-bold text-lg leading-none';
+             btn.title = "Delete Message";
+             btn.onclick = () => deleteMessage(msgId);
+             bubble.appendChild(btn);
+        }
+
+        function deleteMessage(msgId) {
+            if(!confirm("Delete this message?")) return;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: "delete",
+                    msg_id: msgId
+                }));
+            }
+        }
+
+        function appendMessage(id, text, isOwn, senderName = '', isOptimistic = false) {
+            const div = document.createElement('div');
+            div.id = isOptimistic ? 'temp-pending' : `msg-${id}`;
+            if(isOptimistic) div.className = 'pending-msg';
+            
+            div.className += ` flex flex-col ${isOwn ? 'items-end' : 'items-start'} mb-2`;
+            
             if (!isOwn && senderName) {
                 const nameSpan = document.createElement('span');
                 nameSpan.className = 'text-xs text-gray-500 mb-1 ml-1';
                 nameSpan.innerText = senderName;
                 div.appendChild(nameSpan);
             }
-            
-           const bubble = document.createElement('div');
-            bubble.className = `max-w-xs md:max-w-md px-4 py-2 rounded-lg shadow-sm ${
+
+            const bubble = document.createElement('div');
+            bubble.className = `bubble flex items-center max-w-xs md:max-w-md px-4 py-2 rounded-lg shadow-sm ${
                 isOwn ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white text-gray-800 rounded-bl-none'
             }`;
-            bubble.innerText = text;
             
+            const textSpan = document.createElement('span');
+            textSpan.innerText = text;
+            bubble.appendChild(textSpan);
+
+            // Add delete button only for own messages that are NOT pending
+            if (isOwn && !isOptimistic) {
+                const btn = document.createElement('button');
+                btn.innerHTML = '×';
+                btn.className = 'delete-btn ml-2 text-white/70 hover:text-white font-bold text-lg leading-none';
+                btn.onclick = () => deleteMessage(id);
+                bubble.appendChild(btn);
+            }
+
             div.appendChild(bubble);
             messagesDiv.appendChild(div);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
@@ -109,13 +186,21 @@
             e.preventDefault();
             const input = document.getElementById('messageInput');
             const value = input.value.trim();
+            
             if (value && ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(value);
-                appendMessage(value, true);
+                // Send JSON object
+                ws.send(JSON.stringify({
+                    type: "chat",
+                    content: value
+                }));
+                
+                // Optimistic Append (no ID yet)
+                appendMessage(0, value, true, currentUser.username, true);
                 input.value = '';
             }
         };
 
+        loadHistory();
         connect();
     </script>
 </body>

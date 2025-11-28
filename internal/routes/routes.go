@@ -33,6 +33,8 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
 		protected.GET("/rooms", chatCtrl.ListRooms)
 		protected.POST("/rooms", chatCtrl.CreateRoom)
 		protected.POST("rooms/join", chatCtrl.JoinRoom)
+		protected.GET("/messages", chatCtrl.GetMessages)
+		protected.DELETE("/messages/:id", chatCtrl.DeleteMessage)
 		protected.GET("/ws", func(c *gin.Context) {
 			websocket.ServeWS(c, db)
 		})

@@ -83,3 +83,58 @@ func (cc *ChatController) JoinRoom(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"room": room})
 }
+
+func (cc *ChatController) GetMessages(c *gin.Context) {
+	roomID := c.Query("room_id")
+	if roomID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "room_id is required"})
+		return
+	}
+
+	var messages []struct {
+		ID        uint      `json:"id"`
+		Content   string    `json:"content"`
+		SenderID  uint      `json:"sender_id"`
+		Username  string    `json:"sender"` // Joined field
+		CreatedAt time.Time `json:"created_at"`
+	}
+
+	// Join with users table to get usernames
+	// Order by CreatedAt ASC so oldest messages appear at top
+	err := cc.DB.Table("messages").
+		Select("messages.id, messages.content, messages.sender_id, users.username, messages.created_at").
+		Joins("left join users on users.id = messages.sender_id").
+		Where("messages.room_id = ? AND messages.deleted_at IS NULL", roomID).
+		Order("messages.created_at asc").
+		Scan(&messages).Error
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch messages"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"messages": messages})
+}
+
+// NEW: Delete Message Endpoint (Optional if handling via WS, but REST is safer for deletion)
+func (cc *ChatController) DeleteMessage(c *gin.Context) {
+	msgID := c.Param("id")
+	claims, _ := c.Get("claims")
+	claimsMap := claims.(jwt.MapClaims)
+	userID := uint(claimsMap["user_id"].(float64))
+
+	var msg models.Message
+	if err := cc.DB.First(&msg, msgID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Message not found"})
+		return
+	}
+
+	if msg.SenderID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You can only delete your own messages"})
+		return
+	}
+
+	// Soft delete
+	cc.DB.Delete(&msg)
+	c.JSON(http.StatusOK, gin.H{"status": "deleted", "id": msg.ID})
+}
