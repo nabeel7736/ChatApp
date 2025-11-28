@@ -23,7 +23,6 @@ func Connect(cfg *config.Config) *gorm.DB {
 }
 
 func Migrate(db *gorm.DB) error {
-	// auto migrate models
 	return db.AutoMigrate(
 		&models.User{},
 		&models.Message{},

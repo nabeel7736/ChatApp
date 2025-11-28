@@ -25,6 +25,14 @@
             </div>
         </div>
 
+        <div class="bg-white p-4 rounded shadow">
+                <h3 class="text-lg font-bold mb-4">Join by Code</h3>
+                <div class="flex gap-2">
+                    <input type="text" id="joinRoomCode" placeholder="Enter 6-digit Code" maxlength="6" class="flex-1 px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-green-500">
+                    <button id="joinRoomBtn" class="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700">Join</button>
+                </div>
+            </div>
+
         <h3 class="text-lg font-bold mb-4 text-gray-700">Available Rooms</h3>
         <div id="roomsList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             </div>
@@ -52,7 +60,10 @@
                 const div = document.createElement('div');
                 div.className = 'bg-white p-6 rounded shadow hover:shadow-lg transition cursor-pointer border-l-4 border-blue-500';
                 div.innerHTML = `
-                    <h4 class="text-xl font-bold text-gray-800">${room.name}</h4>
+                   <div class="flex justify-between items-start">
+                        <h4 class="text-xl font-bold text-gray-800">${room.name}</h4>
+                        <span class="bg-gray-200 text-gray-700 text-xs font-mono py-1 px-2 rounded">Code: ${room.code}</span>
+                    </div>
                     <p class="text-gray-500 text-sm mt-2">ID: ${room.id}</p>
                 `;
                 div.onclick = () => window.location.href = `/chat?room_id=${room.id}&room_name=${room.name}`;
@@ -78,6 +89,28 @@
                 fetchRooms();
             } else {
                 alert('Failed to create room');
+            }
+        };
+
+        document.getElementById('joinRoomBtn').onclick = async () => {
+            const code = document.getElementById('joinRoomCode').value;
+            if(!code) return;
+
+            const res = await fetch('/api/rooms/join', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ code })
+            });
+
+            const data = await res.json();
+
+            if(res.ok) {
+                window.location.href = `/chat?room_id=${data.room.id}&room_name=${data.room.name}`;
+            } else {
+                alert(data.error || 'Failed to join room');
             }
         };
 
