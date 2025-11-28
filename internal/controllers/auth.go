@@ -58,15 +58,9 @@ func (a *AuthController) Register(c *gin.Context) {
 		return
 	}
 
-	token, err := a.JWT.GenerateToken(user.ID, user.Username)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not generate token"})
-		return
-	}
-
 	c.JSON(http.StatusCreated, gin.H{
-		"user":  gin.H{"id": user.ID, "username": user.Username, "email": user.Email},
-		"token": token,
+		"message": "User registered successfully. Please login.",
+		"user":    gin.H{"id": user.ID, "username": user.Username, "email": user.Email},
 	})
 }
 
