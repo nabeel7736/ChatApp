@@ -24,13 +24,13 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	{
 		public.POST("/register", authCtrl.Register)
 		public.POST("/login", authCtrl.Login)
-		public.GET("/rooms", chatCtrl.ListRooms)
 	}
 
 	// Protected
 	protected := r.Group("/api")
 	protected.Use(middleware.JWTAuth(jwtSvc))
 	{
+		protected.GET("/rooms", chatCtrl.ListRooms)
 		protected.POST("/rooms", chatCtrl.CreateRoom)
 		protected.POST("rooms/join", chatCtrl.JoinRoom)
 		protected.GET("/ws", func(c *gin.Context) {

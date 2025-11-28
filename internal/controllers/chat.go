@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/gorm"
 )
 
@@ -30,12 +31,21 @@ func (cc *ChatController) CreateRoom(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	claims, exists := c.Get("claims")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	claimsMap := claims.(jwt.MapClaims)
+	userID := uint(claimsMap["user_id"].(float64))
+
 	rand.Seed(time.Now().UnixNano())
 	code := fmt.Sprintf("%06d", rand.Intn(1000000))
 
 	room := models.Room{
-		Name: p.Name,
-		Code: code,
+		Name:   p.Name,
+		Code:   code,
+		UserID: userID,
 	}
 	if err := cc.DB.Create(&room).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create room"})
@@ -45,8 +55,16 @@ func (cc *ChatController) CreateRoom(c *gin.Context) {
 }
 
 func (cc *ChatController) ListRooms(c *gin.Context) {
+	claims, exists := c.Get("claims")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	claimsMap := claims.(jwt.MapClaims)
+	userID := uint(claimsMap["user_id"].(float64))
+
 	var rooms []models.Room
-	cc.DB.Find(&rooms)
+	cc.DB.Where("user_id = ?", userID).Find(&rooms)
 	c.JSON(http.StatusOK, gin.H{"rooms": rooms})
 }
 

@@ -51,24 +51,38 @@
         };
 
         const fetchRooms = async () => {
-            const res = await fetch('/api/rooms');
-            const data = await res.json();
-            const list = document.getElementById('roomsList');
-            list.innerHTML = '';
-            
-            data.rooms.forEach(room => {
-                const div = document.createElement('div');
-                div.className = 'bg-white p-6 rounded shadow hover:shadow-lg transition cursor-pointer border-l-4 border-blue-500';
-                div.innerHTML = `
-                   <div class="flex justify-between items-start">
-                        <h4 class="text-xl font-bold text-gray-800">${room.name}</h4>
-                        <span class="bg-gray-200 text-gray-700 text-xs font-mono py-1 px-2 rounded">Code: ${room.code}</span>
-                    </div>
-                    <p class="text-gray-500 text-sm mt-2">ID: ${room.id}</p>
-                `;
-                div.onclick = () => window.location.href = `/chat?room_id=${room.id}&room_name=${room.name}`;
-                list.appendChild(div);
+            // Updated to send Authorization header
+            const res = await fetch('/api/rooms', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
             });
+            
+            if (res.ok) {
+                const data = await res.json();
+                const list = document.getElementById('roomsList');
+                list.innerHTML = '';
+                
+                if (data.rooms.length === 0) {
+                     list.innerHTML = '<p class="text-gray-500 col-span-3">No rooms created yet. Create one or join with a code.</p>';
+                }
+
+                data.rooms.forEach(room => {
+                    const div = document.createElement('div');
+                    div.className = 'bg-white p-6 rounded shadow hover:shadow-lg transition cursor-pointer border-l-4 border-blue-500';
+                    div.innerHTML = `
+                       <div class="flex justify-between items-start">
+                            <h4 class="text-xl font-bold text-gray-800">${room.name}</h4>
+                            <span class="bg-gray-200 text-gray-700 text-xs font-mono py-1 px-2 rounded">Code: ${room.code}</span>
+                        </div>
+                        <p class="text-gray-500 text-sm mt-2">ID: ${room.id}</p>
+                    `;
+                    div.onclick = () => window.location.href = `/chat?room_id=${room.id}&room_name=${room.name}`;
+                    list.appendChild(div);
+                });
+            } else {
+                console.error("Failed to fetch rooms");
+            }
         };
 
         document.getElementById('createRoomBtn').onclick = async () => {

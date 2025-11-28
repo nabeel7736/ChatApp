@@ -8,6 +8,7 @@ import (
 
 type Room struct {
 	ID        uint           `gorm:"primaryKey" json:"id"`
+	UserID    uint           `json:"user_id"`
 	Name      string         `gorm:"uniqueIndex;not null" json:"name"`
 	Code      string         `gorm:"uniqueIndex;not null" json:"code"`
 	IsPrivate bool           `json:"is_private"`
