@@ -36,10 +36,18 @@
 
     <script>
         const token = localStorage.getItem('token');
-        if (!token) window.location.href = '/login';
+        const userJson = localStorage.getItem('user');
+        if (!token || !userJson) window.location.href = '/login';
+
+        const currentUser = JSON.parse(userJson)
 
         const params = new URLSearchParams(window.location.search);
+        const roomId = params.get('room_id');
         const roomName = params.get('room_name') || 'Global';
+        if (!roomId) {
+            alert("No room ID found");
+            window.location.href = '/dashboard';
+        }
         document.getElementById('roomTitle').innerText = roomName;
 
         const statusEl = document.getElementById('connectionStatus');
@@ -47,10 +55,8 @@
         let ws;
 
         function connect() {
-            // NOTE: Ensure your backend middleware accepts token via query param
             const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-            const url = `${protocol}://${location.host}/api/ws?token=${token}`;
-            
+            const url = `${protocol}://${location.host}/api/ws?token=${token}&room_id=${roomId}`;            
             ws = new WebSocket(url);
 
             ws.onopen = () => {
@@ -59,10 +65,14 @@
             };
 
             ws.onmessage = (e) => {
-                // In a real app, parse JSON here to get sender name, etc.
-                // Assuming raw text for now based on current backend handlers.go
-                const msg = e.data;
-                appendMessage(msg, false);
+                try{
+                    const data =JSON.parse(e.data)
+                    if(data.sender !== currentUser.username){
+                        appendMessage(data.content, false, data.sender);
+                    }
+                }catch (err){
+                    console.error("Error parsing message:", err);
+                }
             };
 
             ws.onclose = () => {
@@ -73,11 +83,18 @@
             };
         }
 
-        function appendMessage(text, isOwn) {
+        function appendMessage(text, isOwn, senderName = '' ) {
             const div = document.createElement('div');
-            div.className = `flex ${isOwn ? 'justify-end' : 'justify-start'}`;
+            div.className = `flex flex-col ${isOwn ? 'items-end' : 'items-start'}`;
+
+            if (!isOwn && senderName) {
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'text-xs text-gray-500 mb-1 ml-1';
+                nameSpan.innerText = senderName;
+                div.appendChild(nameSpan);
+            }
             
-            const bubble = document.createElement('div');
+           const bubble = document.createElement('div');
             bubble.className = `max-w-xs md:max-w-md px-4 py-2 rounded-lg shadow-sm ${
                 isOwn ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white text-gray-800 rounded-bl-none'
             }`;

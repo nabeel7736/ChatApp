@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 	"gorm.io/gorm"
 )
@@ -32,12 +33,13 @@ func ServeWS(c *gin.Context, db *gorm.DB) {
 	var userID uint
 	var username string
 	if userIDInterface != nil {
-		claims := userIDInterface.(map[string]interface{})
-		if uidf, ok := claims["user_id"].(float64); ok {
-			userID = uint(uidf)
-		}
-		if uname, ok := claims["username"].(string); ok {
-			username = uname
+		if claims, ok := userIDInterface.(jwt.MapClaims); ok {
+			if uidf, ok := claims["user_id"].(float64); ok {
+				userID = uint(uidf)
+			}
+			if uname, ok := claims["username"].(string); ok {
+				username = uname
+			}
 		}
 	}
 

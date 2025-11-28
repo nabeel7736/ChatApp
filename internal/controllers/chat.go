@@ -76,12 +76,10 @@ func (cc *ChatController) JoinRoom(c *gin.Context) {
 	}
 
 	var room models.Room
-	// Find room with the specific code
 	if err := cc.DB.Where("code = ?", p.Code).First(&room).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Room not found"})
 		return
 	}
 
-	// Return the room details so frontend can redirect
 	c.JSON(http.StatusOK, gin.H{"room": room})
 }
