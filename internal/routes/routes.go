@@ -34,7 +34,7 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
 		protected.POST("/rooms", chatCtrl.CreateRoom)
 		// websocket endpoint (requires Authorization header or prior auth)
 		protected.GET("/ws", func(c *gin.Context) {
-			websocket.ServeWS(c)
+			websocket.ServeWS(c, db)
 		})
 	}
 

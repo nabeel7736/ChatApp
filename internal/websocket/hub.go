@@ -6,18 +6,24 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+type BroadcastMessage struct {
+	RoomID  uint
+	Content []byte // The JSON payload to send to clients
+}
+
 type Client struct {
-	Conn   *websocket.Conn
-	UserID uint
-	Send   chan []byte
-	RoomID uint
+	Conn     *websocket.Conn
+	UserID   uint
+	Username string
+	Send     chan []byte
+	RoomID   uint
 }
 
 type Hub struct {
 	Clients    map[*Client]bool
 	Register   chan *Client
 	Unregister chan *Client
-	Broadcast  chan []byte
+	Broadcast  chan BroadcastMessage
 	mu         sync.Mutex
 }
 
@@ -30,7 +36,7 @@ func GetHub() *Hub {
 			Clients:    make(map[*Client]bool),
 			Register:   make(chan *Client),
 			Unregister: make(chan *Client),
-			Broadcast:  make(chan []byte),
+			Broadcast:  make(chan BroadcastMessage),
 		}
 		go h.run()
 	})
@@ -55,13 +61,15 @@ func (hub *Hub) run() {
 			hub.mu.Lock()
 			for client := range hub.Clients {
 				// Ideally add room filtering and message routing here
-				select {
-				case client.Send <- message:
-				default:
-					close(client.Send)
-					delete(hub.Clients, client)
+				if client.RoomID == message.RoomID {
+					select {
+					case client.Send <- message.Content:
+					default:
+						close(client.Send)
+						delete(hub.Clients, client)
+					}
 				}
-			}
+			} 
 			hub.mu.Unlock()
 		}
 	}

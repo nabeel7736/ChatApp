@@ -1,33 +1,51 @@
 package websocket
 
 import (
+	"chatapp/internal/models"
+	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"gorm.io/gorm"
 )
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	// Allow all origins for dev. Lock this down for production.
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin:     func(r *http.Request) bool { return true },
 }
 
-func ServeWS(c *gin.Context) {
+type WSMessage struct {
+	Sender    string `json:"sender"`
+	Content   string `json:"content"`
+	Timestamp string `json:"timestamp"`
+}
+
+func ServeWS(c *gin.Context, db *gorm.DB) {
 	hub := GetHub()
 
-	// Expect JWT token as query param token=... OR passed via Authorization header
-	// For demo, we'll accept user_id param to identify user (in production parse JWT)
 	userIDInterface, _ := c.Get("claims")
 	var userID uint
+	var username string
 	if userIDInterface != nil {
 		claims := userIDInterface.(map[string]interface{})
 		if uidf, ok := claims["user_id"].(float64); ok {
 			userID = uint(uidf)
 		}
+		if uname, ok := claims["username"].(string); ok {
+			username = uname
+		}
+	}
+
+	roomIDStr := c.Query("room_id")
+	roomID, err := strconv.Atoi(roomIDStr)
+	if err != nil || roomID == 0 {
+		log.Println("Invalid room ID")
+		return
 	}
 
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
@@ -37,18 +55,20 @@ func ServeWS(c *gin.Context) {
 	}
 
 	client := &Client{
-		Conn:   conn,
-		UserID: userID,
-		Send:   make(chan []byte, 256),
+		Conn:     conn,
+		UserID:   userID,
+		Username: username,
+		RoomID:   uint(roomID),
+		Send:     make(chan []byte, 256),
 	}
 
 	hub.Register <- client
 
 	go client.writer()
-	client.reader(hub)
+	client.reader(hub, db)
 }
 
-func (c *Client) reader(hub *Hub) {
+func (c *Client) reader(hub *Hub, db *gorm.DB) {
 	defer func() {
 		hub.Unregister <- c
 		c.Conn.Close()
@@ -61,15 +81,33 @@ func (c *Client) reader(hub *Hub) {
 	})
 
 	for {
-		_, msg, err := c.Conn.ReadMessage()
+		_, msgBytes, err := c.Conn.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("unexpected close error: %v", err)
-			}
 			break
 		}
-		// broadcast to all (for demo). You should enrich messages with JSON that includes room id etc.
-		hub.Broadcast <- msg
+
+		// 1. Save to Database
+		msgContent := string(msgBytes)
+		dbMessage := models.Message{
+			RoomID:   c.RoomID,
+			SenderID: c.UserID,
+			Content:  msgContent,
+		}
+		db.Create(&dbMessage)
+
+		// 2. Prepare JSON for Broadcast (so frontend can display sender name)
+		outMsg := WSMessage{
+			Sender:    c.Username,
+			Content:   msgContent,
+			Timestamp: time.Now().Format("15:04"),
+		}
+		jsonBytes, _ := json.Marshal(outMsg)
+
+		// 3. Send to Hub with RoomID
+		hub.Broadcast <- BroadcastMessage{
+			RoomID:  c.RoomID,
+			Content: jsonBytes,
+		}
 	}
 }
 
