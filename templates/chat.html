@@ -48,7 +48,7 @@
     </header>
 
     <div id="messages" class="flex-1 overflow-y-auto p-4 space-y-4 relative scroll-smooth">
-        </div>
+    </div>
 
     <div class="bg-white border-t border-gray-200 p-3 sm:p-4 z-20">
         <div class="container mx-auto max-w-4xl relative">
@@ -148,10 +148,15 @@
         let audioChunks = [];
         let recordStartTime;
         let recordInterval;
+        let isCancelled = false; // --- FIX 1: New flag to track cancellation ---
 
         // --- WEBSOCKET & CORE LOGIC ---
 
         function connect() {
+            if (ws) {
+                ws.onclose = null; 
+                ws.close();
+            }
             const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
             const url = `${protocol}://${location.host}/api/ws?token=${token}&room_id=${roomId}`;
             
@@ -165,22 +170,27 @@
 
             ws.onmessage = (e) => {
                 const data = JSON.parse(e.data);
+
+                if (data.id && document.getElementById(`msg-${data.id}`)) {
+                    return;
+                }
+
                 if (data.type === 'chat') {
-                    if (data.sender !== currentUser.username) {
+                    const isOwn = data.sender === currentUser.username;
+
+                    if (!isOwn) {
                         appendMessage(data.id, data.content, false, data.sender, data.media_type, data.timestamp);
                     } else {
-                        // Optimistic update confirmation
                         const pending = document.querySelector('.pending-msg');
                         if (pending) {
                             pending.id = `msg-${data.id}`;
                             pending.dataset.id = data.id;
-                            pending.classList.remove('pending-msg', 'opacity-50');
+                            pending.classList.remove('pending-msg', 'opacity-70');
                             
-                            // If it was a file upload that resolved, update content rendering
                             const bubble = pending.querySelector('.bubble-content');
-                            if(bubble) {
+                            if(bubble && data.media_type !== 'text') {
                                 bubble.innerHTML = '';
-                                renderMessageContent(bubble, data.content, data.media_type || 'text');
+                                renderMessageContent(bubble, data.content, data.media_type);
                             }
                         } else {
                             appendMessage(data.id, data.content, true, data.sender, data.media_type, data.timestamp);
@@ -230,23 +240,28 @@
         // --- MESSAGE RENDERING ---
 
         function appendMessage(id, content, isOwn, sender, mediaType = 'text', time = '') {
+            if (id && document.getElementById(`msg-${id}`)) return;
+
             const div = document.createElement('div');
             div.id = id ? `msg-${id}` : 'temp-pending';
-            if (!id) div.classList.add('pending-msg', 'opacity-70'); // Optimistic style
             
             div.dataset.id = id || 0;
             div.dataset.isOwn = isOwn;
             div.dataset.mediaType = mediaType;
+            
             div.className = `flex flex-col message-anim mb-4 ${isOwn ? 'items-end own-message' : 'items-start peer-message'}`;
+            
+            if (!id) {
+                div.classList.add('pending-msg', 'opacity-70'); 
+            }
 
             const label = !isOwn ? `<span class="text-xs text-gray-500 mb-1 ml-1 block">${sender}</span>` : '';
-            
             const bubbleColor = isOwn ? 'bg-blue-600 text-white' : 'bg-white text-gray-800 border border-gray-100 shadow-sm';
             
             div.innerHTML = `
                 ${label}
                 <div class="bubble bubble-content relative max-w-[85%] sm:max-w-[70%] px-4 py-2 rounded-2xl ${bubbleColor} overflow-hidden">
-                    </div>
+                </div>
                 <span class="text-[10px] text-gray-400 mt-1 mx-1">${time || 'Now'}</span>
             `;
 
@@ -259,7 +274,7 @@
 
         function renderMessageContent(container, content, type) {
             if (type === 'image') {
-                container.classList.add('p-1'); // Less padding for images
+                container.classList.add('p-1');
                 container.innerHTML = `<img src="${content}" class="rounded-lg max-h-64 object-cover cursor-pointer hover:opacity-95 transition" onclick="window.open(this.src)">`;
             } else if (type === 'audio') {
                 container.appendChild(createAudioPlayer(content));
@@ -274,7 +289,6 @@
                         <i class="ph ph-download-simple"></i>
                     </a>`;
             } else {
-                // Text
                 container.innerHTML = `<span class="msg-text whitespace-pre-wrap leading-relaxed text-sm sm:text-base">${escapeHtml(content)}</span>`;
             }
         }
@@ -359,13 +373,11 @@
             const file = input.files[0];
             if (!file) return;
 
-            // Determine generic type
             let type = 'file';
             if (file.type.startsWith('image/')) type = 'image';
             if (file.type.startsWith('audio/')) type = 'audio';
-            if (file.type.startsWith('video/')) type = 'file'; // treating video as file for now
+            if (file.type.startsWith('video/')) type = 'file'; 
 
-            // Optimistic UI for Image
             if(type === 'image') {
                 const reader = new FileReader();
                 reader.onload = (e) => appendMessage(0, e.target.result, true, currentUser.username, 'image');
@@ -386,7 +398,6 @@
                 const data = await res.json();
                 
                 if (data.url) {
-                    // Send WS message
                     ws.send(JSON.stringify({
                         type: 'chat',
                         content: data.url,
@@ -397,7 +408,7 @@
                 console.error("Upload failed", err);
                 alert("File upload failed");
             }
-            input.value = ''; // Reset
+            input.value = ''; 
         }
 
         // 2. Voice Recording
@@ -406,6 +417,7 @@
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 mediaRecorder = new MediaRecorder(stream);
                 audioChunks = [];
+                isCancelled = false; // --- FIX 2: Reset cancellation flag ---
                 
                 mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
                 
@@ -422,8 +434,10 @@
                     clearInterval(recordInterval);
                     stream.getTracks().forEach(track => track.stop());
                     
-                    if (audioChunks.length > 0) {
+                    // --- FIX 3: Check if cancelled before sending ---
+                    if (!isCancelled && audioChunks.length > 0) {
                         const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                        audioChunks = []; 
                         await uploadAndSendFile(blob, 'audio.webm', 'audio');
                     }
                 };
@@ -439,14 +453,14 @@
             if (mediaRecorder && mediaRecorder.state === 'recording') {
                 mediaRecorder.stop();
                 recordingUI.classList.add('hidden');
-                audioChunks = []; // reset logic handled in onstop
             }
         }
 
         function cancelRecording() {
+            isCancelled = true; // --- FIX 4: Mark as cancelled ---
             if (mediaRecorder) {
                 mediaRecorder.stop();
-                audioChunks = []; // Clear chunks so we don't send
+                audioChunks = []; 
             }
             clearInterval(recordInterval);
             recordingUI.classList.add('hidden');
@@ -456,7 +470,6 @@
             const formData = new FormData();
             formData.append("file", blob, filename);
 
-            // Optimistic Append
             appendMessage(0, URL.createObjectURL(blob), true, currentUser.username, mediaType);
 
             try {
@@ -474,7 +487,6 @@
             }
         }
 
-        // --- FORM SUBMIT ---
         document.getElementById('chatForm').onsubmit = (e) => {
             e.preventDefault();
             const val = messageInput.value.trim();
@@ -485,16 +497,13 @@
                 cancelEdit();
             } else {
                 ws.send(JSON.stringify({ type: 'chat', content: val, media_type: 'text' }));
-                appendMessage(0, val, true, currentUser.username, 'text'); // Optimistic
+                appendMessage(0, val, true, currentUser.username, 'text'); 
             }
             
             messageInput.value = '';
             messageInput.style.height = 'auto';
             toggleSendButton();
         };
-
-
-        // --- CONTEXT MENU & EDITING ---
 
         window.onclick = (e) => {
             if (!contextMenu.contains(e.target)) contextMenu.classList.add('hidden');
@@ -509,11 +518,9 @@
                 const id = row.dataset.id;
                 const type = row.dataset.mediaType;
                 
-                // Only allow text editing for now
                 const canEdit = type === 'text';
                 document.getElementById('ctxEditBtn').style.display = canEdit ? 'flex' : 'none';
                 
-                // Position Menu
                 contextMenu.style.left = `${e.clientX}px`;
                 contextMenu.style.top = `${e.clientY}px`;
                 contextMenu.classList.remove('hidden');
@@ -550,7 +557,6 @@
             messageInput.style.height = 'auto';
         }
 
-        // --- UTILS ---
         function formatDuration(sec) {
             const m = Math.floor(sec / 60);
             const s = Math.floor(sec % 60);
@@ -577,7 +583,6 @@
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
 
-        // Init
         loadHistory();
         connect();
 
