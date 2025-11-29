@@ -113,56 +113,53 @@
             };
 
            ws.onmessage = (e) => {
-    try {
-        const data = JSON.parse(e.data);
+            try {
+                const data = JSON.parse(e.data);
 
-        if (data.type === 'delete') {
-            const el = document.getElementById(`msg-${data.id}`);
-            if (el) el.remove();
-        } else if (data.type === 'edit') {
-            const textSpan = document.querySelector(`#msg-${data.id} .msg-content`);
-            if (textSpan) {
-                // update content and append edited tag if not present
-                textSpan.innerText = data.content;
-                if (!textSpan.innerText.includes('(edited)')) {
-                    textSpan.innerText += ' (edited)';
-                }
-            }
-        } else if (data.type === 'chat') {
-            if (data.sender !== currentUser.username) {
-                appendMessage(data.id, data.content, false, data.sender, false, data.media_type || 'text');
-            } else {
-                // own message: find first pending-msg and replace its id & dataset
-                const pending = document.querySelector('.pending-msg');
-                if (pending) {
-                    pending.id = `msg-${data.id}`;
-                    pending.dataset.id = data.id;
-                    pending.classList.remove('pending-msg');
-                    const bubble = pending.querySelector('.bubble');
-                    if (bubble) {
-                        bubble.innerHTML = ''; // clear
-                        if ((data.media_type || 'text') === 'audio') {
-                            const audio = document.createElement('audio');
-                            audio.controls = true;
-                            audio.src = data.content;
-                            audio.className = "w-full max-w-[200px]";
-                            bubble.appendChild(audio);
-                        } else {
-                            const textSpan = document.createElement('span');
-                            textSpan.className = 'msg-content select-text';
-                            textSpan.innerText = data.content;
-                            bubble.appendChild(textSpan);
+                if (data.type === 'delete') {
+                    const el = document.getElementById(`msg-${data.id}`);
+                    if (el) el.remove();
+                } else if (data.type === 'edit') {
+                    const textSpan = document.querySelector(`#msg-${data.id} .msg-content`);
+                    if (textSpan) {
+                        // update content and append edited tag if not present
+                        textSpan.innerText = data.content;
+                        if (!textSpan.innerText.includes('(edited)')) {
+                            textSpan.innerText += ' (edited)';
                         }
                     }
-                } else {
-                    appendMessage(data.id, data.content, true, data.sender, false, data.media_type || 'text');
+                } else if (data.type === 'chat') {
+                    if (data.sender !== currentUser.username) {
+                        appendMessage(data.id, data.content, false, data.sender, false, data.media_type || 'text');
+                    } else {
+                        // own message: find first pending-msg and replace its id & dataset
+                        const pending = document.querySelector('.pending-msg');
+                        if (pending) {
+                            pending.id = `msg-${data.id}`;
+                            pending.dataset.id = data.id;
+                            pending.classList.remove('pending-msg');
+                            const bubble = pending.querySelector('.bubble');
+                            if (bubble) {
+                                bubble.innerHTML = ''; // clear
+                                if ((data.media_type || 'text') === 'audio') {
+                                    // Use custom bubble
+                                    bubble.appendChild(createAudioBubble(data.content));
+                                } else {
+                                    const textSpan = document.createElement('span');
+                                    textSpan.className = 'msg-content select-text';
+                                    textSpan.innerText = data.content;
+                                    bubble.appendChild(textSpan);
+                                }
+                            }
+                        } else {
+                            appendMessage(data.id, data.content, true, data.sender, false, data.media_type || 'text');
+                        }
+                    }
                 }
+            } catch (err) {
+                console.error("Error parsing message:", err);
             }
-        }
-    } catch (err) {
-        console.error("Error parsing message:", err);
-    }
-};
+        };
 
             ws.onclose = () => {
                 statusEl.innerText = 'Disconnected';
@@ -267,6 +264,75 @@ async function uploadAndSendAudio(blob) {
     }
 }
 
+// Helper to create the custom Audio Bubble DOM element
+function createAudioBubble(url) {
+    const audio = new Audio(url);
+    audio.preload = "metadata";
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "flex items-center gap-3 w-full min-w-[200px]";
+
+    // ▶️ Play Button
+    const playBtn = document.createElement("button");
+    playBtn.type = "button"; // prevent form submit if inside form
+    playBtn.innerHTML = "▶️";
+    playBtn.className = "text-2xl focus:outline-none hover:scale-110 transition-transform";
+
+    // Waveform (Fake WhatsApp animation)
+    const wave = document.createElement("div");
+    wave.className = "flex-1 flex items-center gap-1 h-8";
+
+    for (let i = 0; i < 20; i++) {
+        const bar = document.createElement("div");
+        bar.className = `w-1 bg-current opacity-70 rounded`;
+        // Randomized height for visual effect
+        bar.style.height = `${Math.floor(Math.random() * 60 + 20)}%`; 
+        wave.appendChild(bar);
+    }
+
+    // Time text (00:00)
+    const timeLabel = document.createElement("span");
+    timeLabel.className = "text-xs font-mono opacity-80 w-[35px] text-right";
+    timeLabel.innerText = "0:00";
+
+    // Update duration when loaded
+    audio.onloadedmetadata = () => {
+        if(isFinite(audio.duration)) {
+             timeLabel.innerText = formatTime(audio.duration);
+        }
+    };
+
+    // Play/Pause Logic
+    playBtn.onclick = (e) => {
+        e.stopPropagation(); // prevent bubbling
+        if (audio.paused) {
+            audio.play();
+            playBtn.innerHTML = "⏸️";
+        } else {
+            audio.pause();
+            playBtn.innerHTML = "▶️";
+        }
+    };
+
+    // While playing — update time
+    audio.ontimeupdate = () => {
+        if(isFinite(audio.currentTime)) {
+            timeLabel.innerText = formatTime(audio.currentTime);
+        }
+    };
+
+    // When audio ends
+    audio.onended = () => {
+        playBtn.innerHTML = "▶️";
+    };
+
+    wrapper.appendChild(playBtn);
+    wrapper.appendChild(wave);
+    wrapper.appendChild(timeLabel);
+    
+    return wrapper;
+}
+
 function appendMessage(id, text, isOwn, senderName = '', isOptimistic = false, media_type = 'text') {
     const div = document.createElement('div');
 
@@ -294,67 +360,10 @@ function appendMessage(id, text, isOwn, senderName = '', isOptimistic = false, m
         ${isOwn ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white text-gray-800 rounded-bl-none'}`;
 
     /* ==============================================================  
-        🎧 WHATSAPP AUDIO BUBBLE  
+        🎧 WHATSAPP AUDIO BUBBLE (Refactored)
        ============================================================== */
     if (media_type === "audio") {
-
-        const audio = new Audio(text);
-        audio.preload = "metadata";
-
-        const wrapper = document.createElement("div");
-        wrapper.className = "flex items-center gap-3 w-full";
-
-        // ▶️ Play Button
-        const playBtn = document.createElement("button");
-        playBtn.innerHTML = "▶️";
-        playBtn.className = "text-2xl focus:outline-none";
-
-        // Waveform (Fake WhatsApp animation)
-        const wave = document.createElement("div");
-        wave.className = "flex-1 flex items-center gap-1";
-
-        for (let i = 0; i < 20; i++) {
-            const bar = document.createElement("div");
-            bar.className = `h-${Math.floor(Math.random() * 4) + 2} w-1 bg-current opacity-70 rounded`;
-            wave.appendChild(bar);
-        }
-
-        // Time text (00:00)
-        const timeLabel = document.createElement("span");
-        timeLabel.className = "text-xs opacity-80";
-        timeLabel.innerText = "0:00";
-
-        // Update duration when loaded
-        audio.onloadedmetadata = () => {
-            timeLabel.innerText = formatTime(audio.duration);
-        };
-
-        // Play/Pause Logic
-        playBtn.onclick = () => {
-            if (audio.paused) {
-                audio.play();
-                playBtn.innerHTML = "⏸️";
-            } else {
-                audio.pause();
-                playBtn.innerHTML = "▶️";
-            }
-        };
-
-        // While playing — update time
-        audio.ontimeupdate = () => {
-            timeLabel.innerText = formatTime(audio.currentTime);
-        };
-
-        // When audio ends
-        audio.onended = () => {
-            playBtn.innerHTML = "▶️";
-        };
-
-        wrapper.appendChild(playBtn);
-        wrapper.appendChild(wave);
-        wrapper.appendChild(timeLabel);
-
-        bubble.appendChild(wrapper);
+        bubble.appendChild(createAudioBubble(text));
     }
 
     /* ==============================================================  
@@ -374,6 +383,7 @@ function appendMessage(id, text, isOwn, senderName = '', isOptimistic = false, m
 
 /* Format seconds → mm:ss */
 function formatTime(sec) {
+    if(!sec || isNaN(sec)) return "0:00";
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
     return `${m}:${s < 10 ? "0" + s : s}`;
@@ -408,8 +418,15 @@ function formatTime(sec) {
             
             if (bubble && msgContainer && msgContainer.dataset.isOwn === "true") {
                 e.preventDefault(); // Prevent default browser menu
-                const content = bubble.querySelector('.msg-content').innerText.replace(' (edited)', '');
-                showMenu(e.clientX, e.clientY, msgContainer.dataset.id, content);
+                const content = bubble.querySelector('.msg-content')?.innerText.replace(' (edited)', '') || "";
+                // Only show menu for text messages, or you can adapt for audio delete
+                if(content) showMenu(e.clientX, e.clientY, msgContainer.dataset.id, content);
+                else {
+                    // For audio, maybe just delete option (content is url)
+                    selectedMsgId = msgContainer.dataset.id;
+                    // Position menu but maybe disable Edit? For now simplified:
+                    showMenu(e.clientX, e.clientY, msgContainer.dataset.id, ""); 
+                }
             }
         });
 
@@ -427,9 +444,12 @@ function formatTime(sec) {
 
                     if (msgContainer && msgContainer.dataset.isOwn === "true") {
                         const rect = range.getBoundingClientRect();
-                        const content = msgContainer.querySelector('.msg-content').innerText.replace(' (edited)', '');
-                        // Show menu below the selection
-                        showMenu(rect.left + (rect.width / 2), rect.bottom + 5, msgContainer.dataset.id, content);
+                        const contentEl = msgContainer.querySelector('.msg-content');
+                        if(contentEl) {
+                            const content = contentEl.innerText.replace(' (edited)', '');
+                            // Show menu below the selection
+                            showMenu(rect.left + (rect.width / 2), rect.bottom + 5, msgContainer.dataset.id, content);
+                        }
                     }
                 }
             }, 10);
@@ -444,7 +464,7 @@ function formatTime(sec) {
 
         // Menu Button Actions
         document.getElementById('ctxEditBtn').onclick = () => {
-            if(selectedMsgId) editMessage(selectedMsgId, selectedMsgContent);
+            if(selectedMsgId && selectedMsgContent) editMessage(selectedMsgId, selectedMsgContent);
             hideMenu();
         };
 
