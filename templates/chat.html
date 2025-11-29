@@ -8,6 +8,8 @@
     <style>
         #messages::-webkit-scrollbar { width: 8px; }
         #messages::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 4px; }
+        /* Prevent default context menu on own bubbles if you want strictly custom behavior */
+        .own-message .bubble { cursor: context-menu; }
     </style>
 </head>
 <body class="bg-gray-100 h-screen flex flex-col">
@@ -19,7 +21,7 @@
         <div id="connectionStatus" class="text-sm font-semibold text-yellow-600">Connecting...</div>
     </header>
 
-    <div id="messages" class="flex-1 overflow-y-auto p-4 space-y-3">
+    <div id="messages" class="flex-1 overflow-y-auto p-4 space-y-3 relative">
         </div>
 
     <div class="bg-white p-4 border-t border-gray-200">
@@ -31,6 +33,15 @@
                 </svg>
             </button>
         </form>
+    </div>
+
+    <div id="contextMenu" class="hidden fixed bg-white border border-gray-200 shadow-xl rounded-lg py-1 z-50 w-32 overflow-hidden transition-opacity duration-100">
+        <button id="ctxEditBtn" class="w-full text-left px-4 py-2 text-sm hover:bg-blue-50 text-blue-700 font-medium flex items-center gap-2">
+            <span></span> Edit
+        </button>
+        <button id="ctxDelBtn" class="w-full text-left px-4 py-2 text-sm hover:bg-red-50 text-red-600 font-medium flex items-center gap-2">
+            <span>×</span> Delete
+        </button>
     </div>
 
     <script>
@@ -51,7 +62,12 @@
 
         const statusEl = document.getElementById('connectionStatus');
         const messagesDiv = document.getElementById('messages');
+        const contextMenu = document.getElementById('contextMenu');
         let ws;
+
+        // Variables to track interaction
+        let selectedMsgId = null;
+        let selectedMsgContent = null;
 
         // 1. Fetch Chat History
         async function loadHistory() {
@@ -101,15 +117,14 @@
                         }
                     }
                     else if (data.type === 'chat') {
-                        // Handle Chat Event
                         if (data.sender !== currentUser.username) {
                             appendMessage(data.id, data.content, false, data.sender);
                         } else {
                             const pending = document.querySelector('.pending-msg');
                             if(pending) {
                                 pending.id = `msg-${data.id}`;
+                                pending.dataset.id = data.id; // Update data-id
                                 pending.classList.remove('pending-msg');
-                                addMessageControls(pending, data.id, data.content);
                             }
                         }
                     }
@@ -125,43 +140,13 @@
             };
         }
 
-        function addMessageControls(container, msgId, currentContent) {
-             const bubble = container.querySelector('.bubble');
-             if(bubble.querySelector('.controls-container')) return;
-
-             const controls = document.createElement('div');
-             controls.className = 'controls-container ml-3 flex gap-2 items-center';
-
-             // Edit Button
-             const editBtn = document.createElement('button');
-             editBtn.innerHTML = '✎';
-             editBtn.className = 'text-blue-200 hover:text-white font-bold text-sm leading-none';
-             editBtn.title = "Edit (10m limit)";
-             
-             editBtn.onclick = () => {
-                const currentText = container.querySelector('.msg-content').innerText.replace(' (edited)', '');
-                editMessage(msgId, currentText);
-             };
-
-             // Delete Button
-             const delBtn = document.createElement('button');
-             delBtn.innerHTML = '×';
-             delBtn.className = 'text-red-300 hover:text-red-100 font-bold text-lg leading-none';
-             delBtn.title = "Delete Message";
-             delBtn.onclick = () => deleteMessage(msgId);
-
-             controls.appendChild(editBtn);
-             controls.appendChild(delBtn);
-             bubble.appendChild(controls);
-        }
-
         function editMessage(msgId, oldContent) {
             const newContent = prompt("Edit your message:", oldContent);
             if (newContent !== null && newContent !== oldContent && newContent.trim() !== "") {
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({
                         type: "edit",
-                        msg_id: msgId,
+                        msg_id: parseInt(msgId),
                         content: newContent
                     }));
                 }
@@ -173,7 +158,7 @@
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
                     type: "delete",
-                    msg_id: msgId
+                    msg_id: parseInt(msgId)
                 }));
             }
         }
@@ -181,9 +166,14 @@
         function appendMessage(id, text, isOwn, senderName = '', isOptimistic = false) {
             const div = document.createElement('div');
             div.id = isOptimistic ? 'temp-pending' : `msg-${id}`;
+            // Store Metadata for context menu interaction
+            div.dataset.id = id;
+            div.dataset.isOwn = isOwn; 
+
             if(isOptimistic) div.className = 'pending-msg';
             
-            div.className += ` flex flex-col ${isOwn ? 'items-end' : 'items-start'} mb-2`;
+            // Add 'own-message' class for styling hooks if needed
+            div.className += ` flex flex-col ${isOwn ? 'items-end own-message' : 'items-start'} mb-2 group`;
             
             if (!isOwn && senderName) {
                 const nameSpan = document.createElement('span');
@@ -193,23 +183,92 @@
             }
 
             const bubble = document.createElement('div');
-            bubble.className = `bubble flex items-center max-w-xs md:max-w-md px-4 py-2 rounded-lg shadow-sm ${
+            // Remove 'bubble' class here? No, keep it for selection targeting
+            bubble.className = `bubble flex items-center max-w-xs md:max-w-md px-4 py-2 rounded-lg shadow-sm transition-colors ${
                 isOwn ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white text-gray-800 rounded-bl-none'
             }`;
             
             const textSpan = document.createElement('span');
-            textSpan.className = 'msg-content'; 
+            textSpan.className = 'msg-content select-text'; // Ensure text is selectable
             textSpan.innerText = text;
             bubble.appendChild(textSpan);
-
-            if (isOwn && !isOptimistic) {
-                addMessageControls(div, id, text);
-            }
 
             div.appendChild(bubble);
             messagesDiv.appendChild(div);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
+
+        // --- Context Menu & Selection Logic ---
+
+        function showMenu(x, y, id, content) {
+            selectedMsgId = id;
+            selectedMsgContent = content;
+            
+            // Adjust position to stay on screen
+            const menuWidth = 128; // w-32 is 8rem = 128px
+            if (x + menuWidth > window.innerWidth) x -= menuWidth;
+            
+            contextMenu.style.left = `${x}px`;
+            contextMenu.style.top = `${y}px`;
+            contextMenu.classList.remove('hidden');
+        }
+
+        function hideMenu() {
+            contextMenu.classList.add('hidden');
+            selectedMsgId = null;
+        }
+
+        // 1. Handle Right Click (Context Menu)
+        messagesDiv.addEventListener('contextmenu', (e) => {
+            const bubble = e.target.closest('.bubble');
+            const msgContainer = e.target.closest('[id^="msg-"]');
+            
+            if (bubble && msgContainer && msgContainer.dataset.isOwn === "true") {
+                e.preventDefault(); // Prevent default browser menu
+                const content = bubble.querySelector('.msg-content').innerText.replace(' (edited)', '');
+                showMenu(e.clientX, e.clientY, msgContainer.dataset.id, content);
+            }
+        });
+
+        // 2. Handle Text Selection
+        document.addEventListener('mouseup', (e) => {
+            // Give a small timeout to let selection settle
+            setTimeout(() => {
+                const selection = window.getSelection();
+                if (!selection.isCollapsed) {
+                    const range = selection.getRangeAt(0);
+                    // Check if selection is inside an own message
+                    const container = range.commonAncestorContainer;
+                    const element = container.nodeType === 1 ? container : container.parentElement;
+                    const msgContainer = element.closest('[id^="msg-"]');
+
+                    if (msgContainer && msgContainer.dataset.isOwn === "true") {
+                        const rect = range.getBoundingClientRect();
+                        const content = msgContainer.querySelector('.msg-content').innerText.replace(' (edited)', '');
+                        // Show menu below the selection
+                        showMenu(rect.left + (rect.width / 2), rect.bottom + 5, msgContainer.dataset.id, content);
+                    }
+                }
+            }, 10);
+        });
+
+        // Hide menu on click elsewhere
+        document.addEventListener('click', (e) => {
+            if (!contextMenu.contains(e.target)) {
+                hideMenu();
+            }
+        });
+
+        // Menu Button Actions
+        document.getElementById('ctxEditBtn').onclick = () => {
+            if(selectedMsgId) editMessage(selectedMsgId, selectedMsgContent);
+            hideMenu();
+        };
+
+        document.getElementById('ctxDelBtn').onclick = () => {
+            if(selectedMsgId) deleteMessage(selectedMsgId);
+            hideMenu();
+        };
 
         document.getElementById('chatForm').onsubmit = (e) => {
             e.preventDefault();
