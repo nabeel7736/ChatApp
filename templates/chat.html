@@ -5,102 +5,152 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chat Room</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <style>
-        #messages::-webkit-scrollbar { width: 8px; }
-        #messages::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 4px; }
-        /* Prevent default context menu on own bubbles if you want strictly custom behavior */
+        /* Custom Scrollbar */
+        #messages::-webkit-scrollbar { width: 6px; }
+        #messages::-webkit-scrollbar-track { background: transparent; }
+        #messages::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 10px; }
+        
+        /* Message Animations */
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .message-anim { animation: fadeIn 0.3s ease-out forwards; }
+
+        /* Recording Pulse */
+        @keyframes pulse-ring {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .recording-pulse { animation: pulse-ring 1.5s cubic-bezier(0.25, 0.8, 0.25, 1) infinite; }
+
+        /* Bubbles */
+        .own-message .bubble { border-bottom-right-radius: 0; }
+        .peer-message .bubble { border-bottom-left-radius: 0; }
+        
         .own-message .bubble { cursor: context-menu; }
     </style>
 </head>
-<body class="bg-gray-100 h-screen flex flex-col">
-    <header class="bg-white shadow p-4 flex justify-between items-center z-10">
-        <div class="flex items-center">
-            <a href="/dashboard" class="text-blue-600 hover:text-blue-800 mr-4 font-bold">← Back</a>
-            <h2 id="roomTitle" class="text-xl font-bold text-gray-800">Chat Room</h2>
+<body class="bg-[#f0f2f5] h-screen flex flex-col font-sans">
+    
+    <header class="bg-white/80 backdrop-blur-md border-b border-gray-200 px-6 py-4 flex justify-between items-center z-20 sticky top-0 shadow-sm">
+        <div class="flex items-center gap-4">
+            <a href="/dashboard" class="text-gray-500 hover:text-gray-800 transition-colors">
+                <i class="ph ph-arrow-left text-2xl"></i>
+            </a>
+            <div>
+                <h2 id="roomTitle" class="text-lg font-bold text-gray-800 leading-tight">Chat Room</h2>
+                <div id="connectionStatus" class="text-xs font-medium text-yellow-600 flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></span> Connecting...
+                </div>
+            </div>
         </div>
-        <div id="connectionStatus" class="text-sm font-semibold text-yellow-600">Connecting...</div>
     </header>
 
-    <div id="messages" class="flex-1 overflow-y-auto p-4 space-y-3 relative">
+    <div id="messages" class="flex-1 overflow-y-auto p-4 space-y-4 relative scroll-smooth">
         </div>
 
-    <div class="bg-white p-4 border-t border-gray-200">
-        <form id="chatForm" class="flex gap-2 container mx-auto max-w-4xl items-center">
-            <button type="button" id="cancelEditBtn" class="hidden text-gray-500 hover:text-red-600 font-medium px-3">
-                Cancel
-            </button>
+    <div class="bg-white border-t border-gray-200 p-3 sm:p-4 z-20">
+        <div class="container mx-auto max-w-4xl relative">
+            
+            <div id="editBanner" class="hidden absolute -top-12 left-0 right-0 bg-blue-50 text-blue-800 px-4 py-2 rounded-t-lg text-sm flex justify-between items-center border border-blue-100 shadow-sm">
+                <span><i class="ph ph-pencil-simple mr-2"></i>Editing message...</span>
+                <button onclick="cancelEdit()" class="text-blue-600 hover:text-blue-800 font-bold">✕</button>
+            </div>
 
-            <button type="button" id="recordBtn" class="bg-gray-200 text-gray-700 p-3 rounded-full hover:bg-red-100 transition shadow-sm">
-        🎤
-    </button>
-            
-            <input type="text" id="messageInput" placeholder="Type a message..." class="flex-1 px-4 py-3 border rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm" autocomplete="off">
-            
-            <button type="submit" id="sendBtn" class="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 shadow-md transition">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-6 h-6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
-                </svg>
-            </button>
-        </form>
+            <form id="chatForm" class="flex items-end gap-2 transition-all">
+                
+                <input type="file" id="fileInput" class="hidden" onchange="handleFileUpload(this)">
+
+                <button type="button" onclick="document.getElementById('fileInput').click()" 
+                    class="p-3 text-gray-500 hover:bg-gray-100 rounded-full transition-colors focus:outline-none" title="Send File/Image">
+                    <i class="ph ph-plus text-xl"></i>
+                </button>
+
+                <div class="flex-1 bg-gray-100 rounded-3xl flex items-center px-4 py-2 focus-within:ring-2 focus-within:ring-blue-500 focus-within:bg-white transition-all border border-transparent focus-within:border-blue-200">
+                    <textarea id="messageInput" rows="1" placeholder="Type a message..." 
+                        class="w-full bg-transparent border-none focus:ring-0 resize-none max-h-32 py-2 text-gray-700 placeholder-gray-400 leading-relaxed outline-none"
+                        oninput="adjustHeight(this); toggleSendButton();" 
+                        onkeydown="handleEnter(event)"></textarea>
+                </div>
+
+                <div class="relative w-12 h-12 flex items-center justify-center">
+                    <button type="submit" id="sendBtn" class="hidden absolute bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 shadow-lg transform hover:scale-105 transition-all">
+                        <i class="ph ph-paper-plane-right text-xl"></i>
+                    </button>
+                    
+                    <button type="button" id="recordBtn" class="absolute bg-gray-200 text-gray-600 p-3 rounded-full hover:bg-gray-300 transition-all shadow-sm">
+                        <i class="ph ph-microphone text-xl"></i>
+                    </button>
+                </div>
+            </form>
+
+            <div id="recordingUI" class="hidden absolute inset-0 bg-white z-30 flex items-center gap-3 px-2 rounded-xl">
+                <button type="button" onclick="cancelRecording()" class="p-3 text-red-500 hover:bg-red-50 rounded-full transition-colors">
+                    <i class="ph ph-trash text-xl"></i>
+                </button>
+                
+                <div class="flex-1 bg-red-50 h-12 rounded-full flex items-center px-4 gap-3 border border-red-100 relative overflow-hidden">
+                    <div class="w-3 h-3 bg-red-500 rounded-full recording-pulse"></div>
+                    <span id="recordTimer" class="font-mono text-red-600 font-medium">0:00</span>
+                    <div class="flex-1 text-xs text-red-300 truncate">Recording audio...</div>
+                </div>
+
+                <button type="button" onclick="stopRecordingAndSend()" class="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 shadow-lg transform hover:scale-105 transition-all">
+                    <i class="ph ph-paper-plane-right text-xl"></i>
+                </button>
+            </div>
+
+        </div>
     </div>
 
-    <div id="contextMenu" class="hidden fixed bg-white border border-gray-200 shadow-xl rounded-lg py-1 z-50 w-32 overflow-hidden transition-opacity duration-100">
-        <button id="ctxEditBtn" class="w-full text-left px-4 py-2 text-sm hover:bg-blue-50 text-blue-700 font-medium flex items-center gap-2">
-            <span></span> Edit
+    <div id="contextMenu" class="hidden fixed bg-white border border-gray-100 shadow-xl rounded-xl py-1 z-50 w-40 overflow-hidden transform transition-all duration-200 origin-top-left">
+        <button id="ctxEditBtn" class="w-full text-left px-4 py-3 text-sm hover:bg-blue-50 text-gray-700 hover:text-blue-700 font-medium flex items-center gap-3 transition-colors">
+            <i class="ph ph-pencil-simple text-lg"></i> Edit
         </button>
-        <button id="ctxDelBtn" class="w-full text-left px-4 py-2 text-sm hover:bg-red-50 text-red-600 font-medium flex items-center gap-2">
-            <span>×</span> Delete
+        <button id="ctxDelBtn" class="w-full text-left px-4 py-3 text-sm hover:bg-red-50 text-gray-700 hover:text-red-600 font-medium flex items-center gap-3 transition-colors border-t border-gray-50">
+            <i class="ph ph-trash text-lg"></i> Delete
         </button>
     </div>
 
     <script>
+        // --- CONFIG & STATE ---
         const token = localStorage.getItem('token');
         const userJson = localStorage.getItem('user');
         if (!token || !userJson) window.location.href = '/login';
 
-        const currentUser = JSON.parse(userJson)
-
+        const currentUser = JSON.parse(userJson);
         const params = new URLSearchParams(window.location.search);
         const roomId = params.get('room_id');
-        const roomName = params.get('room_name') || 'Global';
-        if (!roomId) {
-            alert("No room ID found");
-            window.location.href = '/dashboard';
-        }
+        const roomName = params.get('room_name') || 'Chat';
+        
+        if (!roomId) window.location.href = '/dashboard';
+        
         document.getElementById('roomTitle').innerText = roomName;
 
-        const statusEl = document.getElementById('connectionStatus');
+        // UI Refs
         const messagesDiv = document.getElementById('messages');
-        const contextMenu = document.getElementById('contextMenu');
         const messageInput = document.getElementById('messageInput');
-        const cancelEditBtn = document.getElementById('cancelEditBtn');
-        let ws;
+        const sendBtn = document.getElementById('sendBtn');
+        const recordBtn = document.getElementById('recordBtn');
+        const recordingUI = document.getElementById('recordingUI');
+        const recordTimer = document.getElementById('recordTimer');
+        const contextMenu = document.getElementById('contextMenu');
 
-        // Variables to track interaction
+        let ws;
+        let editingMsgId = null;
         let selectedMsgId = null;
         let selectedMsgContent = null;
-        let editingMsgId = null;
-        
+        let selectedMediaType = null;
 
-        // 1. Fetch Chat History
-        async function loadHistory() {
-            try {
-                const res = await fetch(`/api/messages?room_id=${roomId}`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                const data = await res.json();
-                if(data.messages) {
-                    data.messages.forEach(msg => {
-                        const isOwn = msg.sender === currentUser.username;
-                        appendMessage(msg.id, msg.content, isOwn, msg.sender, false, msg.media_type || "text");
-                    });
-                }
-            } catch (err) {
-                console.error("Failed to load history", err);
-            }
-        }
+        // Recording State
+        let mediaRecorder;
+        let audioChunks = [];
+        let recordStartTime;
+        let recordInterval;
 
-        // 2. Connect WebSocket
+        // --- WEBSOCKET & CORE LOGIC ---
+
         function connect() {
             const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
             const url = `${protocol}://${location.host}/api/ws?token=${token}&room_id=${roomId}`;
@@ -108,399 +158,429 @@
             ws = new WebSocket(url);
 
             ws.onopen = () => {
-                statusEl.innerText = 'Connected';
-                statusEl.className = 'text-sm font-semibold text-green-600';
+                const s = document.getElementById('connectionStatus');
+                s.innerHTML = '<span class="w-2 h-2 rounded-full bg-green-500"></span> Online';
+                s.className = 'text-xs font-medium text-green-600 flex items-center gap-1';
             };
 
-           ws.onmessage = (e) => {
-            try {
+            ws.onmessage = (e) => {
                 const data = JSON.parse(e.data);
-
-                if (data.type === 'delete') {
-                    const el = document.getElementById(`msg-${data.id}`);
-                    if (el) el.remove();
-                } else if (data.type === 'edit') {
-                    const textSpan = document.querySelector(`#msg-${data.id} .msg-content`);
-                    if (textSpan) {
-                        // update content and append edited tag if not present
-                        textSpan.innerText = data.content;
-                        if (!textSpan.innerText.includes('(edited)')) {
-                            textSpan.innerText += ' (edited)';
-                        }
-                    }
-                } else if (data.type === 'chat') {
+                if (data.type === 'chat') {
                     if (data.sender !== currentUser.username) {
-                        appendMessage(data.id, data.content, false, data.sender, false, data.media_type || 'text');
+                        appendMessage(data.id, data.content, false, data.sender, data.media_type, data.timestamp);
                     } else {
-                        // own message: find first pending-msg and replace its id & dataset
+                        // Optimistic update confirmation
                         const pending = document.querySelector('.pending-msg');
                         if (pending) {
                             pending.id = `msg-${data.id}`;
                             pending.dataset.id = data.id;
-                            pending.classList.remove('pending-msg');
-                            const bubble = pending.querySelector('.bubble');
-                            if (bubble) {
-                                bubble.innerHTML = ''; // clear
-                                if ((data.media_type || 'text') === 'audio') {
-                                    // Use custom bubble
-                                    bubble.appendChild(createAudioBubble(data.content));
-                                } else {
-                                    const textSpan = document.createElement('span');
-                                    textSpan.className = 'msg-content select-text';
-                                    textSpan.innerText = data.content;
-                                    bubble.appendChild(textSpan);
-                                }
+                            pending.classList.remove('pending-msg', 'opacity-50');
+                            
+                            // If it was a file upload that resolved, update content rendering
+                            const bubble = pending.querySelector('.bubble-content');
+                            if(bubble) {
+                                bubble.innerHTML = '';
+                                renderMessageContent(bubble, data.content, data.media_type || 'text');
                             }
                         } else {
-                            appendMessage(data.id, data.content, true, data.sender, false, data.media_type || 'text');
+                            appendMessage(data.id, data.content, true, data.sender, data.media_type, data.timestamp);
+                        }
+                    }
+                } else if (data.type === 'delete') {
+                    const el = document.getElementById(`msg-${data.id}`);
+                    if (el) {
+                        el.style.opacity = '0';
+                        el.style.transform = 'scale(0.9)';
+                        setTimeout(() => el.remove(), 300);
+                    }
+                } else if (data.type === 'edit') {
+                    const el = document.querySelector(`#msg-${data.id} .msg-text`);
+                    if (el) {
+                        el.innerText = data.content;
+                        const editedTag = document.querySelector(`#msg-${data.id} .edited-tag`);
+                        if (!editedTag) {
+                            const tag = document.createElement('span');
+                            tag.className = 'edited-tag text-[10px] opacity-60 ml-1 italic';
+                            tag.innerText = '(edited)';
+                            el.parentNode.appendChild(tag);
                         }
                     }
                 }
+            };
+
+            ws.onclose = () => {
+                const s = document.getElementById('connectionStatus');
+                s.innerHTML = '<span class="w-2 h-2 rounded-full bg-red-500"></span> Reconnecting...';
+                s.className = 'text-xs font-medium text-red-600 flex items-center gap-1';
+                setTimeout(connect, 3000);
+            };
+        }
+
+        async function loadHistory() {
+            const res = await fetch(`/api/messages?room_id=${roomId}`, { headers: { 'Authorization': `Bearer ${token}` }});
+            const data = await res.json();
+            if (data.messages) {
+                data.messages.forEach(msg => {
+                    const isOwn = msg.sender === currentUser.username;
+                    appendMessage(msg.id, msg.content, isOwn, msg.sender, msg.media_type, formatTimeRaw(msg.created_at));
+                });
+            }
+        }
+
+        // --- MESSAGE RENDERING ---
+
+        function appendMessage(id, content, isOwn, sender, mediaType = 'text', time = '') {
+            const div = document.createElement('div');
+            div.id = id ? `msg-${id}` : 'temp-pending';
+            if (!id) div.classList.add('pending-msg', 'opacity-70'); // Optimistic style
+            
+            div.dataset.id = id || 0;
+            div.dataset.isOwn = isOwn;
+            div.dataset.mediaType = mediaType;
+            div.className = `flex flex-col message-anim mb-4 ${isOwn ? 'items-end own-message' : 'items-start peer-message'}`;
+
+            const label = !isOwn ? `<span class="text-xs text-gray-500 mb-1 ml-1 block">${sender}</span>` : '';
+            
+            const bubbleColor = isOwn ? 'bg-blue-600 text-white' : 'bg-white text-gray-800 border border-gray-100 shadow-sm';
+            
+            div.innerHTML = `
+                ${label}
+                <div class="bubble bubble-content relative max-w-[85%] sm:max-w-[70%] px-4 py-2 rounded-2xl ${bubbleColor} overflow-hidden">
+                    </div>
+                <span class="text-[10px] text-gray-400 mt-1 mx-1">${time || 'Now'}</span>
+            `;
+
+            const contentContainer = div.querySelector('.bubble-content');
+            renderMessageContent(contentContainer, content, mediaType);
+
+            messagesDiv.appendChild(div);
+            scrollToBottom();
+        }
+
+        function renderMessageContent(container, content, type) {
+            if (type === 'image') {
+                container.classList.add('p-1'); // Less padding for images
+                container.innerHTML = `<img src="${content}" class="rounded-lg max-h-64 object-cover cursor-pointer hover:opacity-95 transition" onclick="window.open(this.src)">`;
+            } else if (type === 'audio') {
+                container.appendChild(createAudioPlayer(content));
+            } else if (type === 'file') {
+                const fileName = content.split('/').pop() || 'Document';
+                container.innerHTML = `
+                    <a href="${content}" target="_blank" class="flex items-center gap-3 p-1 hover:underline">
+                        <div class="bg-gray-100 text-gray-600 w-10 h-10 rounded-full flex items-center justify-center">
+                            <i class="ph ph-file-text text-xl"></i>
+                        </div>
+                        <span class="truncate max-w-[150px] font-medium text-sm">${fileName}</span>
+                        <i class="ph ph-download-simple"></i>
+                    </a>`;
+            } else {
+                // Text
+                container.innerHTML = `<span class="msg-text whitespace-pre-wrap leading-relaxed text-sm sm:text-base">${escapeHtml(content)}</span>`;
+            }
+        }
+
+        // --- AUDIO PLAYER UI ---
+        function createAudioPlayer(url) {
+            const wrapper = document.createElement('div');
+            wrapper.className = "flex items-center gap-2 min-w-[200px] py-1";
+            
+            const audio = new Audio(url);
+            
+            const btn = document.createElement('button');
+            btn.innerHTML = '<i class="ph ph-play-circle text-3xl"></i>';
+            btn.className = "hover:scale-110 transition-transform focus:outline-none";
+            
+            const track = document.createElement('div');
+            track.className = "flex-1 h-1 bg-current opacity-30 rounded-full mx-2 relative overflow-hidden";
+            const progress = document.createElement('div');
+            progress.className = "h-full bg-current w-0 absolute left-0 top-0";
+            track.appendChild(progress);
+
+            const time = document.createElement('span');
+            time.className = "text-xs font-mono opacity-80 min-w-[30px] text-right";
+            time.innerText = "0:00";
+
+            btn.onclick = () => {
+                if (audio.paused) {
+                    audio.play();
+                    btn.innerHTML = '<i class="ph ph-pause-circle text-3xl"></i>';
+                } else {
+                    audio.pause();
+                    btn.innerHTML = '<i class="ph ph-play-circle text-3xl"></i>';
+                }
+            };
+
+            audio.ontimeupdate = () => {
+                const pct = (audio.currentTime / audio.duration) * 100;
+                progress.style.width = `${pct}%`;
+                time.innerText = formatDuration(audio.currentTime);
+            };
+
+            audio.onended = () => {
+                btn.innerHTML = '<i class="ph ph-play-circle text-3xl"></i>';
+                progress.style.width = '0%';
+            };
+            
+            audio.onloadedmetadata = () => {
+                if(isFinite(audio.duration)) time.innerText = formatDuration(audio.duration);
+            };
+
+            wrapper.append(btn, track, time);
+            return wrapper;
+        }
+
+        // --- INPUT & RECORDING LOGIC ---
+
+        function toggleSendButton() {
+            const hasText = messageInput.value.trim().length > 0;
+            if (hasText) {
+                recordBtn.classList.add('hidden');
+                sendBtn.classList.remove('hidden');
+            } else {
+                recordBtn.classList.remove('hidden');
+                sendBtn.classList.add('hidden');
+            }
+        }
+
+        function adjustHeight(el) {
+            el.style.height = 'auto';
+            el.style.height = el.scrollHeight + 'px';
+        }
+
+        function handleEnter(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                document.getElementById('chatForm').dispatchEvent(new Event('submit'));
+            }
+        }
+
+        // 1. File Upload Handler
+        async function handleFileUpload(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            // Determine generic type
+            let type = 'file';
+            if (file.type.startsWith('image/')) type = 'image';
+            if (file.type.startsWith('audio/')) type = 'audio';
+            if (file.type.startsWith('video/')) type = 'file'; // treating video as file for now
+
+            // Optimistic UI for Image
+            if(type === 'image') {
+                const reader = new FileReader();
+                reader.onload = (e) => appendMessage(0, e.target.result, true, currentUser.username, 'image');
+                reader.readAsDataURL(file);
+            } else {
+                appendMessage(0, `Uploading ${file.name}...`, true, currentUser.username, 'text');
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const res = await fetch('/api/upload', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    body: formData
+                });
+                const data = await res.json();
+                
+                if (data.url) {
+                    // Send WS message
+                    ws.send(JSON.stringify({
+                        type: 'chat',
+                        content: data.url,
+                        media_type: type
+                    }));
+                }
             } catch (err) {
-                console.error("Error parsing message:", err);
+                console.error("Upload failed", err);
+                alert("File upload failed");
+            }
+            input.value = ''; // Reset
+        }
+
+        // 2. Voice Recording
+        recordBtn.onclick = async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                
+                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                
+                mediaRecorder.onstart = () => {
+                    recordingUI.classList.remove('hidden');
+                    recordStartTime = Date.now();
+                    recordInterval = setInterval(() => {
+                        const sec = Math.floor((Date.now() - recordStartTime) / 1000);
+                        recordTimer.innerText = formatDuration(sec);
+                    }, 1000);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    clearInterval(recordInterval);
+                    stream.getTracks().forEach(track => track.stop());
+                    
+                    if (audioChunks.length > 0) {
+                        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                        await uploadAndSendFile(blob, 'audio.webm', 'audio');
+                    }
+                };
+
+                mediaRecorder.start();
+            } catch (err) {
+                console.error(err);
+                alert("Microphone access denied or not supported.");
             }
         };
 
-            ws.onclose = () => {
-                statusEl.innerText = 'Disconnected';
-                statusEl.className = 'text-sm font-semibold text-red-600';
-                setTimeout(connect, 5000);
-            };
+        function stopRecordingAndSend() {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+                recordingUI.classList.add('hidden');
+                audioChunks = []; // reset logic handled in onstop
+            }
         }
 
-       function editMessage(msgId, oldContent) {
-            // Set state
-            editingMsgId = msgId;
-            
-            // Populate input
-            messageInput.value = oldContent;
-            messageInput.focus();
-            
-            // Show UI indicators
-            cancelEditBtn.classList.remove('hidden');
-            messageInput.classList.add('ring-2', 'ring-yellow-400'); // Optional: yellow ring to indicate edit
+        function cancelRecording() {
+            if (mediaRecorder) {
+                mediaRecorder.stop();
+                audioChunks = []; // Clear chunks so we don't send
+            }
+            clearInterval(recordInterval);
+            recordingUI.classList.add('hidden');
         }
-        function cancelEdit() {
-            editingMsgId = null;
+
+        async function uploadAndSendFile(blob, filename, mediaType) {
+            const formData = new FormData();
+            formData.append("file", blob, filename);
+
+            // Optimistic Append
+            appendMessage(0, URL.createObjectURL(blob), true, currentUser.username, mediaType);
+
+            try {
+                const res = await fetch('/api/upload', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    body: formData
+                });
+                const data = await res.json();
+                if(data.url) {
+                    ws.send(JSON.stringify({ type: 'chat', content: data.url, media_type: mediaType }));
+                }
+            } catch (e) {
+                console.error("Audio upload failed", e);
+            }
+        }
+
+        // --- FORM SUBMIT ---
+        document.getElementById('chatForm').onsubmit = (e) => {
+            e.preventDefault();
+            const val = messageInput.value.trim();
+            if (!val) return;
+
+            if (editingMsgId) {
+                ws.send(JSON.stringify({ type: 'edit', msg_id: parseInt(editingMsgId), content: val }));
+                cancelEdit();
+            } else {
+                ws.send(JSON.stringify({ type: 'chat', content: val, media_type: 'text' }));
+                appendMessage(0, val, true, currentUser.username, 'text'); // Optimistic
+            }
+            
             messageInput.value = '';
-            
-            // Hide UI indicators
-            cancelEditBtn.classList.add('hidden');
-            messageInput.classList.remove('ring-2', 'ring-yellow-400');
-        }
-
-        function deleteMessage(msgId) {
-            if(!confirm("Delete this message?")) return;
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: "delete",
-                    msg_id: parseInt(msgId)
-                }));
-            }
-        }
-
-        // ... existing variables ...
-let mediaRecorder;
-let audioChunks = [];
-const recordBtn = document.getElementById('recordBtn');
-
-// 1. Handle Recording
-recordBtn.onclick = async () => {
-    if (mediaRecorder && mediaRecorder.state === "recording") {
-        mediaRecorder.stop();
-        recordBtn.innerText = "🎤"; // Reset icon
-        recordBtn.classList.remove("bg-red-500", "text-white", "animate-pulse");
-    } else {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorder = new MediaRecorder(stream);
-            audioChunks = [];
-
-            mediaRecorder.ondataavailable = event => {
-                audioChunks.push(event.data);
-            };
-
-            mediaRecorder.onstop = async () => {
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                await uploadAndSendAudio(audioBlob);
-            };
-
-            mediaRecorder.start();
-            recordBtn.innerText = "Rx"; // Recording icon
-            recordBtn.classList.add("bg-red-500", "text-white", "animate-pulse");
-        } catch (err) {
-            console.error("Error accessing microphone:", err);
-            alert("Could not access microphone");
-        }
-    }
-};
-
-// 2. Upload and Send function
-async function uploadAndSendAudio(blob) {
-    const formData = new FormData();
-    formData.append("file", blob, "voice-msg.webm");
-
-    try {
-        const res = await fetch('/api/upload', {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
-            body: formData
-        });
-        
-        if (res.ok) {
-            const data = await res.json();
-            ws.send(JSON.stringify({
-                type: "chat",
-                content: data.url,
-                media_type: "audio"
-            }));
-            appendMessage(0, data.url, true, currentUser.username, true, "audio");
-
-        } else {
-            console.error("Upload failed");
-        }
-    } catch (err) {
-        console.error("Error uploading audio", err);
-    }
-}
-
-// Helper to create the custom Audio Bubble DOM element
-function createAudioBubble(url) {
-    const audio = new Audio(url);
-    audio.preload = "metadata";
-
-    const wrapper = document.createElement("div");
-    wrapper.className = "flex items-center gap-3 w-full min-w-[200px]";
-
-    // ▶️ Play Button
-    const playBtn = document.createElement("button");
-    playBtn.type = "button"; // prevent form submit if inside form
-    playBtn.innerHTML = "▶️";
-    playBtn.className = "text-2xl focus:outline-none hover:scale-110 transition-transform";
-
-    // Waveform (Fake WhatsApp animation)
-    const wave = document.createElement("div");
-    wave.className = "flex-1 flex items-center gap-1 h-8";
-
-    for (let i = 0; i < 20; i++) {
-        const bar = document.createElement("div");
-        bar.className = `w-1 bg-current opacity-70 rounded`;
-        // Randomized height for visual effect
-        bar.style.height = `${Math.floor(Math.random() * 60 + 20)}%`; 
-        wave.appendChild(bar);
-    }
-
-    // Time text (00:00)
-    const timeLabel = document.createElement("span");
-    timeLabel.className = "text-xs font-mono opacity-80 w-[35px] text-right";
-    timeLabel.innerText = "0:00";
-
-    // Update duration when loaded
-    audio.onloadedmetadata = () => {
-        if(isFinite(audio.duration)) {
-             timeLabel.innerText = formatTime(audio.duration);
-        }
-    };
-
-    // Play/Pause Logic
-    playBtn.onclick = (e) => {
-        e.stopPropagation(); // prevent bubbling
-        if (audio.paused) {
-            audio.play();
-            playBtn.innerHTML = "⏸️";
-        } else {
-            audio.pause();
-            playBtn.innerHTML = "▶️";
-        }
-    };
-
-    // While playing — update time
-    audio.ontimeupdate = () => {
-        if(isFinite(audio.currentTime)) {
-            timeLabel.innerText = formatTime(audio.currentTime);
-        }
-    };
-
-    // When audio ends
-    audio.onended = () => {
-        playBtn.innerHTML = "▶️";
-    };
-
-    wrapper.appendChild(playBtn);
-    wrapper.appendChild(wave);
-    wrapper.appendChild(timeLabel);
-    
-    return wrapper;
-}
-
-function appendMessage(id, text, isOwn, senderName = '', isOptimistic = false, media_type = 'text') {
-    const div = document.createElement('div');
-
-    if (isOptimistic) {
-        div.id = 'temp-pending';
-        div.classList.add('pending-msg');
-    } else {
-        div.id = `msg-${id}`;
-    }
-
-    div.dataset.id = id;
-    div.dataset.isOwn = isOwn ? "true" : "false";
-    div.className += ` flex flex-col ${isOwn ? 'items-end own-message' : 'items-start'} mb-2 group`;
-
-    if (!isOwn && senderName) {
-        const nameSpan = document.createElement('span');
-        nameSpan.className = 'text-xs text-gray-500 mb-1 ml-1';
-        nameSpan.innerText = senderName;
-        div.appendChild(nameSpan);
-    }
-
-    const bubble = document.createElement('div');
-    bubble.className =
-        `bubble max-w-xs md:max-w-md px-4 py-3 rounded-xl shadow 
-        ${isOwn ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white text-gray-800 rounded-bl-none'}`;
-
-    /* ==============================================================  
-        🎧 WHATSAPP AUDIO BUBBLE (Refactored)
-       ============================================================== */
-    if (media_type === "audio") {
-        bubble.appendChild(createAudioBubble(text));
-    }
-
-    /* ==============================================================  
-        📝 NORMAL TEXT MESSAGE  
-       ============================================================== */
-    else {
-        const textSpan = document.createElement('span');
-        textSpan.className = 'msg-content select-text';
-        textSpan.innerText = text;
-        bubble.appendChild(textSpan);
-    }
-
-    div.appendChild(bubble);
-    messagesDiv.appendChild(div);
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
-}
-
-/* Format seconds → mm:ss */
-function formatTime(sec) {
-    if(!sec || isNaN(sec)) return "0:00";
-    const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
-    return `${m}:${s < 10 ? "0" + s : s}`;
-}
+            messageInput.style.height = 'auto';
+            toggleSendButton();
+        };
 
 
+        // --- CONTEXT MENU & EDITING ---
 
-        // --- Context Menu & Selection Logic ---
+        window.onclick = (e) => {
+            if (!contextMenu.contains(e.target)) contextMenu.classList.add('hidden');
+        };
 
-        function showMenu(x, y, id, content) {
-            selectedMsgId = id;
-            selectedMsgContent = content;
-            
-            // Adjust position to stay on screen
-            const menuWidth = 128; // w-32 is 8rem = 128px
-            if (x + menuWidth > window.innerWidth) x -= menuWidth;
-            
-            contextMenu.style.left = `${x}px`;
-            contextMenu.style.top = `${y}px`;
-            contextMenu.classList.remove('hidden');
-        }
-
-        function hideMenu() {
-            contextMenu.classList.add('hidden');
-            selectedMsgId = null;
-        }
-
-        // 1. Handle Right Click (Context Menu)
-        messagesDiv.addEventListener('contextmenu', (e) => {
+        messagesDiv.oncontextmenu = (e) => {
             const bubble = e.target.closest('.bubble');
-            const msgContainer = e.target.closest('[id^="msg-"]');
+            const row = e.target.closest('[id^="msg-"]');
             
-            if (bubble && msgContainer && msgContainer.dataset.isOwn === "true") {
-                e.preventDefault(); // Prevent default browser menu
-                const content = bubble.querySelector('.msg-content')?.innerText.replace(' (edited)', '') || "";
-                // Only show menu for text messages, or you can adapt for audio delete
-                if(content) showMenu(e.clientX, e.clientY, msgContainer.dataset.id, content);
-                else {
-                    // For audio, maybe just delete option (content is url)
-                    selectedMsgId = msgContainer.dataset.id;
-                    // Position menu but maybe disable Edit? For now simplified:
-                    showMenu(e.clientX, e.clientY, msgContainer.dataset.id, ""); 
-                }
+            if (row && bubble && row.dataset.isOwn === "true") {
+                e.preventDefault();
+                const id = row.dataset.id;
+                const type = row.dataset.mediaType;
+                
+                // Only allow text editing for now
+                const canEdit = type === 'text';
+                document.getElementById('ctxEditBtn').style.display = canEdit ? 'flex' : 'none';
+                
+                // Position Menu
+                contextMenu.style.left = `${e.clientX}px`;
+                contextMenu.style.top = `${e.clientY}px`;
+                contextMenu.classList.remove('hidden');
+
+                selectedMsgId = id;
+                selectedMediaType = type;
+                selectedMsgContent = bubble.querySelector('.msg-text')?.innerText || "";
             }
-        });
-
-        // 2. Handle Text Selection
-        document.addEventListener('mouseup', (e) => {
-            // Give a small timeout to let selection settle
-            setTimeout(() => {
-                const selection = window.getSelection();
-                if (!selection.isCollapsed) {
-                    const range = selection.getRangeAt(0);
-                    // Check if selection is inside an own message
-                    const container = range.commonAncestorContainer;
-                    const element = container.nodeType === 1 ? container : container.parentElement;
-                    const msgContainer = element.closest('[id^="msg-"]');
-
-                    if (msgContainer && msgContainer.dataset.isOwn === "true") {
-                        const rect = range.getBoundingClientRect();
-                        const contentEl = msgContainer.querySelector('.msg-content');
-                        if(contentEl) {
-                            const content = contentEl.innerText.replace(' (edited)', '');
-                            // Show menu below the selection
-                            showMenu(rect.left + (rect.width / 2), rect.bottom + 5, msgContainer.dataset.id, content);
-                        }
-                    }
-                }
-            }, 10);
-        });
-
-        // Hide menu on click elsewhere
-        document.addEventListener('click', (e) => {
-            if (!contextMenu.contains(e.target)) {
-                hideMenu();
-            }
-        });
-
-        // Menu Button Actions
-        document.getElementById('ctxEditBtn').onclick = () => {
-            if(selectedMsgId && selectedMsgContent) editMessage(selectedMsgId, selectedMsgContent);
-            hideMenu();
         };
 
         document.getElementById('ctxDelBtn').onclick = () => {
-            if(selectedMsgId) deleteMessage(selectedMsgId);
-            hideMenu();
-        };
-
-        document.getElementById('chatForm').onsubmit = (e) => {
-            e.preventDefault();
-            const input = document.getElementById('messageInput');
-            const value = input.value.trim();
-
-            if (!value || !ws || ws.readyState !== WebSocket.OPEN) return;
-            if (editingMsgId) {
-                // --- HANDLE EDIT ---
-                ws.send(JSON.stringify({
-                    type: "edit",
-                    msg_id: parseInt(editingMsgId),
-                    content: value
-                }));
-                cancelEdit(); // Exit edit mode
-            } else {
-                // --- HANDLE NEW MESSAGE ---
-                ws.send(JSON.stringify({
-                    type: "chat",
-                    content: value
-                }));
-                // Optimistic append
-                appendMessage(0, value, true, currentUser.username, true);
-                messageInput.value = '';
+            if (selectedMsgId && confirm("Delete this message?")) {
+                ws.send(JSON.stringify({ type: 'delete', msg_id: parseInt(selectedMsgId) }));
             }
+            contextMenu.classList.add('hidden');
         };
-            
+
+        document.getElementById('ctxEditBtn').onclick = () => {
+            if (selectedMsgId && selectedMediaType === 'text') {
+                editingMsgId = selectedMsgId;
+                messageInput.value = selectedMsgContent;
+                messageInput.focus();
+                document.getElementById('editBanner').classList.remove('hidden');
+                messageInput.parentElement.classList.add('ring-2', 'ring-blue-500');
+            }
+            contextMenu.classList.add('hidden');
+        };
+
+        function cancelEdit() {
+            editingMsgId = null;
+            messageInput.value = '';
+            document.getElementById('editBanner').classList.add('hidden');
+            messageInput.parentElement.classList.remove('ring-2', 'ring-blue-500');
+            messageInput.style.height = 'auto';
+        }
+
+        // --- UTILS ---
+        function formatDuration(sec) {
+            const m = Math.floor(sec / 60);
+            const s = Math.floor(sec % 60);
+            return `${m}:${s < 10 ? '0' + s : s}`;
+        }
+
+        function formatTimeRaw(isoStr) {
+            if(!isoStr) return '';
+            const d = new Date(isoStr);
+            return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function escapeHtml(text) {
+            if (!text) return "";
+            return text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function scrollToBottom() {
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        // Init
         loadHistory();
         connect();
+
     </script>
 </body>
 </html>
