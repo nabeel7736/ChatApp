@@ -6,7 +6,6 @@
     <title>Chat Room</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Custom scrollbar for messages area */
         #messages::-webkit-scrollbar { width: 8px; }
         #messages::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 4px; }
     </style>
@@ -89,24 +88,28 @@
                     const data = JSON.parse(e.data);
                     
                     if (data.type === 'delete') {
-                        // Handle Delete Event
                         const el = document.getElementById(`msg-${data.id}`);
                         if (el) el.remove();
-                    } else if (data.type === 'chat') {
+                    } 
+                    else if (data.type === 'edit') {
+                        const textSpan = document.querySelector(`#msg-${data.id} .msg-content`);
+                        if (textSpan) {
+                            textSpan.innerText = data.content; 
+                            if (!textSpan.innerText.includes('(edited)')) {
+                                textSpan.innerText += ' (edited)';
+                            }
+                        }
+                    }
+                    else if (data.type === 'chat') {
                         // Handle Chat Event
-                        // Don't append if it's our own message (we did optimistic UI)
-                        // UNLESS we refreshed and need the ID. 
-                        // Simplified: We allow duplicate check or just check sender
                         if (data.sender !== currentUser.username) {
                             appendMessage(data.id, data.content, false, data.sender);
                         } else {
-                            // Find the optimistic message and update its ID
                             const pending = document.querySelector('.pending-msg');
                             if(pending) {
                                 pending.id = `msg-${data.id}`;
                                 pending.classList.remove('pending-msg');
-                                // Add delete button now that we have ID
-                                addDeleteButton(pending, data.id);
+                                addMessageControls(pending, data.id, data.content);
                             }
                         }
                     }
@@ -122,17 +125,47 @@
             };
         }
 
-        function addDeleteButton(container, msgId) {
+        function addMessageControls(container, msgId, currentContent) {
              const bubble = container.querySelector('.bubble');
-             // Double check we don't duplicate button
-             if(bubble.querySelector('.delete-btn')) return;
+             if(bubble.querySelector('.controls-container')) return;
 
-             const btn = document.createElement('button');
-             btn.innerHTML = '×';
-             btn.className = 'delete-btn ml-2 text-red-400 hover:text-red-600 font-bold text-lg leading-none';
-             btn.title = "Delete Message";
-             btn.onclick = () => deleteMessage(msgId);
-             bubble.appendChild(btn);
+             const controls = document.createElement('div');
+             controls.className = 'controls-container ml-3 flex gap-2 items-center';
+
+             // Edit Button
+             const editBtn = document.createElement('button');
+             editBtn.innerHTML = '✎';
+             editBtn.className = 'text-blue-200 hover:text-white font-bold text-sm leading-none';
+             editBtn.title = "Edit (10m limit)";
+             
+             editBtn.onclick = () => {
+                const currentText = container.querySelector('.msg-content').innerText.replace(' (edited)', '');
+                editMessage(msgId, currentText);
+             };
+
+             // Delete Button
+             const delBtn = document.createElement('button');
+             delBtn.innerHTML = '×';
+             delBtn.className = 'text-red-300 hover:text-red-100 font-bold text-lg leading-none';
+             delBtn.title = "Delete Message";
+             delBtn.onclick = () => deleteMessage(msgId);
+
+             controls.appendChild(editBtn);
+             controls.appendChild(delBtn);
+             bubble.appendChild(controls);
+        }
+
+        function editMessage(msgId, oldContent) {
+            const newContent = prompt("Edit your message:", oldContent);
+            if (newContent !== null && newContent !== oldContent && newContent.trim() !== "") {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: "edit",
+                        msg_id: msgId,
+                        content: newContent
+                    }));
+                }
+            }
         }
 
         function deleteMessage(msgId) {
@@ -165,16 +198,12 @@
             }`;
             
             const textSpan = document.createElement('span');
+            textSpan.className = 'msg-content'; 
             textSpan.innerText = text;
             bubble.appendChild(textSpan);
 
-            // Add delete button only for own messages that are NOT pending
             if (isOwn && !isOptimistic) {
-                const btn = document.createElement('button');
-                btn.innerHTML = '×';
-                btn.className = 'delete-btn ml-2 text-white/70 hover:text-white font-bold text-lg leading-none';
-                btn.onclick = () => deleteMessage(id);
-                bubble.appendChild(btn);
+                addMessageControls(div, id, text);
             }
 
             div.appendChild(bubble);
@@ -188,13 +217,11 @@
             const value = input.value.trim();
             
             if (value && ws && ws.readyState === WebSocket.OPEN) {
-                // Send JSON object
                 ws.send(JSON.stringify({
                     type: "chat",
                     content: value
                 }));
                 
-                // Optimistic Append (no ID yet)
                 appendMessage(0, value, true, currentUser.username, true);
                 input.value = '';
             }

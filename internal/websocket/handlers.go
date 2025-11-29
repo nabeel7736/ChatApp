@@ -103,8 +103,8 @@ func (c *Client) reader(hub *Hub, db *gorm.DB) {
 			continue
 		}
 
-		if inMsg.Type == "delete" {
-			// Handle Deletion logic
+		switch inMsg.Type {
+		case "delete":
 			var msg models.Message
 			if err := db.First(&msg, inMsg.MsgID).Error; err == nil {
 				if msg.SenderID == c.UserID {
@@ -114,13 +114,36 @@ func (c *Client) reader(hub *Hub, db *gorm.DB) {
 						ID:   msg.ID,
 					}
 					jsonBytes, _ := json.Marshal(outMsg)
-					hub.Broadcast <- BroadcastMessage{
-						RoomID:  c.RoomID,
-						Content: jsonBytes,
+					hub.Broadcast <- BroadcastMessage{RoomID: c.RoomID, Content: jsonBytes}
+				}
+			}
+
+		case "edit":
+			var msg models.Message
+			if err := db.First(&msg, inMsg.MsgID).Error; err == nil {
+				// 1. Check Ownership
+				if msg.SenderID == c.UserID {
+					// 2. Check 10-Minute Time Limit
+					if time.Since(msg.CreatedAt) <= 10*time.Minute {
+						msg.Content = inMsg.Content
+						db.Save(&msg)
+
+						outMsg := WSMessage{
+							Type:    "edit",
+							ID:      msg.ID,
+							Content: msg.Content,
+							Sender:  c.Username,
+						}
+						jsonBytes, _ := json.Marshal(outMsg)
+						hub.Broadcast <- BroadcastMessage{RoomID: c.RoomID, Content: jsonBytes}
+					} else {
+						// Optional: Send error back to sender that time limit exceeded
+						log.Println("Edit attempt blocked: time limit exceeded")
 					}
 				}
 			}
-		} else {
+
+		case "chat": // Default to chat if not specified or explicit
 			dbMessage := models.Message{
 				RoomID:   c.RoomID,
 				SenderID: c.UserID,
@@ -136,14 +159,9 @@ func (c *Client) reader(hub *Hub, db *gorm.DB) {
 				Timestamp: time.Now().Format("15:04"),
 			}
 			jsonBytes, _ := json.Marshal(outMsg)
-
-			hub.Broadcast <- BroadcastMessage{
-				RoomID:  c.RoomID,
-				Content: jsonBytes,
-			}
+			hub.Broadcast <- BroadcastMessage{RoomID: c.RoomID, Content: jsonBytes}
 		}
 	}
-
 }
 
 func (c *Client) writer() {
