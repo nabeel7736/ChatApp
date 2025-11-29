@@ -29,6 +29,10 @@
             <button type="button" id="cancelEditBtn" class="hidden text-gray-500 hover:text-red-600 font-medium px-3">
                 Cancel
             </button>
+
+            <button type="button" id="recordBtn" class="bg-gray-200 text-gray-700 p-3 rounded-full hover:bg-red-100 transition shadow-sm">
+        🎤
+    </button>
             
             <input type="text" id="messageInput" placeholder="Type a message..." class="flex-1 px-4 py-3 border rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm" autocomplete="off">
             
@@ -76,6 +80,7 @@
         let selectedMsgId = null;
         let selectedMsgContent = null;
         let editingMsgId = null;
+        
 
         // 1. Fetch Chat History
         async function loadHistory() {
@@ -87,7 +92,7 @@
                 if(data.messages) {
                     data.messages.forEach(msg => {
                         const isOwn = msg.sender === currentUser.username;
-                        appendMessage(msg.id, msg.content, isOwn, msg.sender, false);
+                        appendMessage(msg.id, msg.content, isOwn, msg.sender, false, msg.media_type || "text");
                     });
                 }
             } catch (err) {
@@ -107,39 +112,57 @@
                 statusEl.className = 'text-sm font-semibold text-green-600';
             };
 
-            ws.onmessage = (e) => {
-                try {
-                    const data = JSON.parse(e.data);
-                    
-                    if (data.type === 'delete') {
-                        const el = document.getElementById(`msg-${data.id}`);
-                        if (el) el.remove();
-                    } 
-                    else if (data.type === 'edit') {
-                        const textSpan = document.querySelector(`#msg-${data.id} .msg-content`);
-                        if (textSpan) {
-                            textSpan.innerText = data.content; 
-                            if (!textSpan.innerText.includes('(edited)')) {
-                                textSpan.innerText += ' (edited)';
-                            }
-                        }
-                    }
-                    else if (data.type === 'chat') {
-                        if (data.sender !== currentUser.username) {
-                            appendMessage(data.id, data.content, false, data.sender);
-                        } else {
-                            const pending = document.querySelector('.pending-msg');
-                            if(pending) {
-                                pending.id = `msg-${data.id}`;
-                                pending.dataset.id = data.id; // Update data-id
-                                pending.classList.remove('pending-msg');
-                            }
-                        }
-                    }
-                } catch (err) {
-                    console.error("Error parsing message:", err);
+           ws.onmessage = (e) => {
+    try {
+        const data = JSON.parse(e.data);
+
+        if (data.type === 'delete') {
+            const el = document.getElementById(`msg-${data.id}`);
+            if (el) el.remove();
+        } else if (data.type === 'edit') {
+            const textSpan = document.querySelector(`#msg-${data.id} .msg-content`);
+            if (textSpan) {
+                // update content and append edited tag if not present
+                textSpan.innerText = data.content;
+                if (!textSpan.innerText.includes('(edited)')) {
+                    textSpan.innerText += ' (edited)';
                 }
-            };
+            }
+        } else if (data.type === 'chat') {
+            if (data.sender !== currentUser.username) {
+                appendMessage(data.id, data.content, false, data.sender, false, data.media_type || 'text');
+            } else {
+                // own message: find first pending-msg and replace its id & dataset
+                const pending = document.querySelector('.pending-msg');
+                if (pending) {
+                    pending.id = `msg-${data.id}`;
+                    pending.dataset.id = data.id;
+                    pending.classList.remove('pending-msg');
+                    const bubble = pending.querySelector('.bubble');
+                    if (bubble) {
+                        bubble.innerHTML = ''; // clear
+                        if ((data.media_type || 'text') === 'audio') {
+                            const audio = document.createElement('audio');
+                            audio.controls = true;
+                            audio.src = data.content;
+                            audio.className = "w-full max-w-[200px]";
+                            bubble.appendChild(audio);
+                        } else {
+                            const textSpan = document.createElement('span');
+                            textSpan.className = 'msg-content select-text';
+                            textSpan.innerText = data.content;
+                            bubble.appendChild(textSpan);
+                        }
+                    }
+                } else {
+                    appendMessage(data.id, data.content, true, data.sender, false, data.media_type || 'text');
+                }
+            }
+        }
+    } catch (err) {
+        console.error("Error parsing message:", err);
+    }
+};
 
             ws.onclose = () => {
                 statusEl.innerText = 'Disconnected';
@@ -179,40 +202,184 @@
             }
         }
 
-        function appendMessage(id, text, isOwn, senderName = '', isOptimistic = false) {
-            const div = document.createElement('div');
-            div.id = isOptimistic ? 'temp-pending' : `msg-${id}`;
-            // Store Metadata for context menu interaction
-            div.dataset.id = id;
-            div.dataset.isOwn = isOwn; 
+        // ... existing variables ...
+let mediaRecorder;
+let audioChunks = [];
+const recordBtn = document.getElementById('recordBtn');
 
-            if(isOptimistic) div.className = 'pending-msg';
-            
-            // Add 'own-message' class for styling hooks if needed
-            div.className += ` flex flex-col ${isOwn ? 'items-end own-message' : 'items-start'} mb-2 group`;
-            
-            if (!isOwn && senderName) {
-                const nameSpan = document.createElement('span');
-                nameSpan.className = 'text-xs text-gray-500 mb-1 ml-1';
-                nameSpan.innerText = senderName;
-                div.appendChild(nameSpan);
-            }
+// 1. Handle Recording
+recordBtn.onclick = async () => {
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+        mediaRecorder.stop();
+        recordBtn.innerText = "🎤"; // Reset icon
+        recordBtn.classList.remove("bg-red-500", "text-white", "animate-pulse");
+    } else {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            audioChunks = [];
 
-            const bubble = document.createElement('div');
-            // Remove 'bubble' class here? No, keep it for selection targeting
-            bubble.className = `bubble flex items-center max-w-xs md:max-w-md px-4 py-2 rounded-lg shadow-sm transition-colors ${
-                isOwn ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white text-gray-800 rounded-bl-none'
-            }`;
-            
-            const textSpan = document.createElement('span');
-            textSpan.className = 'msg-content select-text'; // Ensure text is selectable
-            textSpan.innerText = text;
-            bubble.appendChild(textSpan);
+            mediaRecorder.ondataavailable = event => {
+                audioChunks.push(event.data);
+            };
 
-            div.appendChild(bubble);
-            messagesDiv.appendChild(div);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                await uploadAndSendAudio(audioBlob);
+            };
+
+            mediaRecorder.start();
+            recordBtn.innerText = "Rx"; // Recording icon
+            recordBtn.classList.add("bg-red-500", "text-white", "animate-pulse");
+        } catch (err) {
+            console.error("Error accessing microphone:", err);
+            alert("Could not access microphone");
         }
+    }
+};
+
+// 2. Upload and Send function
+async function uploadAndSendAudio(blob) {
+    const formData = new FormData();
+    formData.append("file", blob, "voice-msg.webm");
+
+    try {
+        const res = await fetch('/api/upload', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData
+        });
+        
+        if (res.ok) {
+            const data = await res.json();
+            ws.send(JSON.stringify({
+                type: "chat",
+                content: data.url,
+                media_type: "audio"
+            }));
+            appendMessage(0, data.url, true, currentUser.username, true, "audio");
+
+        } else {
+            console.error("Upload failed");
+        }
+    } catch (err) {
+        console.error("Error uploading audio", err);
+    }
+}
+
+function appendMessage(id, text, isOwn, senderName = '', isOptimistic = false, media_type = 'text') {
+    const div = document.createElement('div');
+
+    if (isOptimistic) {
+        div.id = 'temp-pending';
+        div.classList.add('pending-msg');
+    } else {
+        div.id = `msg-${id}`;
+    }
+
+    div.dataset.id = id;
+    div.dataset.isOwn = isOwn ? "true" : "false";
+    div.className += ` flex flex-col ${isOwn ? 'items-end own-message' : 'items-start'} mb-2 group`;
+
+    if (!isOwn && senderName) {
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'text-xs text-gray-500 mb-1 ml-1';
+        nameSpan.innerText = senderName;
+        div.appendChild(nameSpan);
+    }
+
+    const bubble = document.createElement('div');
+    bubble.className =
+        `bubble max-w-xs md:max-w-md px-4 py-3 rounded-xl shadow 
+        ${isOwn ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white text-gray-800 rounded-bl-none'}`;
+
+    /* ==============================================================  
+        🎧 WHATSAPP AUDIO BUBBLE  
+       ============================================================== */
+    if (media_type === "audio") {
+
+        const audio = new Audio(text);
+        audio.preload = "metadata";
+
+        const wrapper = document.createElement("div");
+        wrapper.className = "flex items-center gap-3 w-full";
+
+        // ▶️ Play Button
+        const playBtn = document.createElement("button");
+        playBtn.innerHTML = "▶️";
+        playBtn.className = "text-2xl focus:outline-none";
+
+        // Waveform (Fake WhatsApp animation)
+        const wave = document.createElement("div");
+        wave.className = "flex-1 flex items-center gap-1";
+
+        for (let i = 0; i < 20; i++) {
+            const bar = document.createElement("div");
+            bar.className = `h-${Math.floor(Math.random() * 4) + 2} w-1 bg-current opacity-70 rounded`;
+            wave.appendChild(bar);
+        }
+
+        // Time text (00:00)
+        const timeLabel = document.createElement("span");
+        timeLabel.className = "text-xs opacity-80";
+        timeLabel.innerText = "0:00";
+
+        // Update duration when loaded
+        audio.onloadedmetadata = () => {
+            timeLabel.innerText = formatTime(audio.duration);
+        };
+
+        // Play/Pause Logic
+        playBtn.onclick = () => {
+            if (audio.paused) {
+                audio.play();
+                playBtn.innerHTML = "⏸️";
+            } else {
+                audio.pause();
+                playBtn.innerHTML = "▶️";
+            }
+        };
+
+        // While playing — update time
+        audio.ontimeupdate = () => {
+            timeLabel.innerText = formatTime(audio.currentTime);
+        };
+
+        // When audio ends
+        audio.onended = () => {
+            playBtn.innerHTML = "▶️";
+        };
+
+        wrapper.appendChild(playBtn);
+        wrapper.appendChild(wave);
+        wrapper.appendChild(timeLabel);
+
+        bubble.appendChild(wrapper);
+    }
+
+    /* ==============================================================  
+        📝 NORMAL TEXT MESSAGE  
+       ============================================================== */
+    else {
+        const textSpan = document.createElement('span');
+        textSpan.className = 'msg-content select-text';
+        textSpan.innerText = text;
+        bubble.appendChild(textSpan);
+    }
+
+    div.appendChild(bubble);
+    messagesDiv.appendChild(div);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
+
+/* Format seconds → mm:ss */
+function formatTime(sec) {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${s < 10 ? "0" + s : s}`;
+}
+
+
 
         // --- Context Menu & Selection Logic ---
 

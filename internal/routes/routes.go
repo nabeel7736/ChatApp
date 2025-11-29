@@ -16,6 +16,8 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
 
 	r.LoadHTMLGlob("templates/*")
 
+	r.Static("/uploads", "./uploads")
+
 	jwtSvc := services.NewJWTService(cfg.JWTSecret)
 	authCtrl := &controllers.AuthController{DB: db, JWT: jwtSvc}
 	chatCtrl := &controllers.ChatController{DB: db}
@@ -35,6 +37,7 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
 		protected.POST("rooms/join", chatCtrl.JoinRoom)
 		protected.GET("/messages", chatCtrl.GetMessages)
 		protected.DELETE("/messages/:id", chatCtrl.DeleteMessage)
+		protected.POST("/upload", chatCtrl.UploadFile)
 		protected.GET("/ws", func(c *gin.Context) {
 			websocket.ServeWS(c, db)
 		})

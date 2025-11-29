@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -137,4 +139,24 @@ func (cc *ChatController) DeleteMessage(c *gin.Context) {
 	// Soft delete
 	cc.DB.Delete(&msg)
 	c.JSON(http.StatusOK, gin.H{"status": "deleted", "id": msg.ID})
+}
+
+func (cc *ChatController) UploadFile(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
+		return
+	}
+
+	ext := filepath.Ext(file.Filename)
+	filename := uuid.New().String() + ext
+	savePath := filepath.Join("uploads", filename)
+
+	if err := c.SaveUploadedFile(file, savePath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
+		return
+	}
+
+	fileURL := "/uploads/" + filename
+	c.JSON(http.StatusOK, gin.H{"url": fileURL})
 }

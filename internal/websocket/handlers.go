@@ -25,13 +25,15 @@ type WSMessage struct {
 	ID        uint   `json:"id,omitempty"`
 	Sender    string `json:"sender"`
 	Content   string `json:"content"`
+	MediaType string `json:"media_type"`
 	Timestamp string `json:"timestamp"`
 }
 
 type IncomingMessage struct {
-	Type    string `json:"type"` // "chat" or "delete"
-	Content string `json:"content,omitempty"`
-	MsgID   uint   `json:"msg_id,omitempty"` // ID of message to delete
+	Type      string `json:"type"`
+	Content   string `json:"content,omitempty"`
+	MediaType string `json:"media_type,omitempty"`
+	MsgID     uint   `json:"msg_id,omitempty"`
 }
 
 func ServeWS(c *gin.Context, db *gorm.DB) {
@@ -50,12 +52,38 @@ func ServeWS(c *gin.Context, db *gorm.DB) {
 				username = uname
 			}
 		}
+	} else {
+		// Browser WebSocket can't set headers; client sends ?token=... in URL.
+		tokenStr := c.Query("token")
+		if tokenStr != "" {
+			// Replace this secret with your real secret/key retrieval
+			jwtSecret := []byte("secret123")
+
+			tok, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+				// Optionally validate alg here
+				return jwtSecret, nil
+			})
+			if err == nil && tok != nil {
+				if claims, ok := tok.Claims.(jwt.MapClaims); ok && tok.Valid {
+					if uidf, ok := claims["user_id"].(float64); ok {
+						userID = uint(uidf)
+					}
+					if uname, ok := claims["username"].(string); ok {
+						username = uname
+					}
+				}
+			} else {
+				// token invalid — you can choose to refuse the connection here
+				log.Println("invalid token in query:", err)
+			}
+		}
 	}
 
 	roomIDStr := c.Query("room_id")
 	roomID, err := strconv.Atoi(roomIDStr)
 	if err != nil || roomID == 0 {
 		log.Println("Invalid room ID")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid room id"})
 		return
 	}
 
@@ -106,7 +134,7 @@ func (c *Client) reader(hub *Hub, db *gorm.DB) {
 		switch inMsg.Type {
 		case "delete":
 			var msg models.Message
-			if err := db.First(&msg, inMsg.MsgID).Error; err == nil {
+			if result := db.Limit(1).Find(&msg, inMsg.MsgID); result.RowsAffected > 0 {
 				if msg.SenderID == c.UserID {
 					db.Delete(&msg)
 					outMsg := WSMessage{
@@ -120,8 +148,7 @@ func (c *Client) reader(hub *Hub, db *gorm.DB) {
 
 		case "edit":
 			var msg models.Message
-			if err := db.First(&msg, inMsg.MsgID).Error; err == nil {
-				// 1. Check Ownership
+			if result := db.Limit(1).Find(&msg, inMsg.MsgID); result.RowsAffected > 0 {
 				if msg.SenderID == c.UserID {
 					// 2. Check 10-Minute Time Limit
 					if time.Since(msg.CreatedAt) <= 10*time.Minute {
@@ -137,17 +164,21 @@ func (c *Client) reader(hub *Hub, db *gorm.DB) {
 						jsonBytes, _ := json.Marshal(outMsg)
 						hub.Broadcast <- BroadcastMessage{RoomID: c.RoomID, Content: jsonBytes}
 					} else {
-						// Optional: Send error back to sender that time limit exceeded
 						log.Println("Edit attempt blocked: time limit exceeded")
 					}
 				}
 			}
 
-		case "chat": // Default to chat if not specified or explicit
+		case "chat":
+			mediaType := "text"
+			if inMsg.MediaType != "" {
+				mediaType = inMsg.MediaType
+			}
 			dbMessage := models.Message{
-				RoomID:   c.RoomID,
-				SenderID: c.UserID,
-				Content:  inMsg.Content,
+				RoomID:    c.RoomID,
+				SenderID:  c.UserID,
+				Content:   inMsg.Content,
+				MediaType: mediaType,
 			}
 			db.Create(&dbMessage)
 
@@ -156,6 +187,7 @@ func (c *Client) reader(hub *Hub, db *gorm.DB) {
 				ID:        dbMessage.ID,
 				Sender:    c.Username,
 				Content:   inMsg.Content,
+				MediaType: mediaType,
 				Timestamp: time.Now().Format("15:04"),
 			}
 			jsonBytes, _ := json.Marshal(outMsg)
