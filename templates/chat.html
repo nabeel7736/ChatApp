@@ -25,9 +25,14 @@
         </div>
 
     <div class="bg-white p-4 border-t border-gray-200">
-        <form id="chatForm" class="flex gap-2 container mx-auto max-w-4xl">
+        <form id="chatForm" class="flex gap-2 container mx-auto max-w-4xl items-center">
+            <button type="button" id="cancelEditBtn" class="hidden text-gray-500 hover:text-red-600 font-medium px-3">
+                Cancel
+            </button>
+            
             <input type="text" id="messageInput" placeholder="Type a message..." class="flex-1 px-4 py-3 border rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm" autocomplete="off">
-            <button type="submit" class="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 shadow-md transition">
+            
+            <button type="submit" id="sendBtn" class="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 shadow-md transition">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-6 h-6">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
                 </svg>
@@ -63,11 +68,14 @@
         const statusEl = document.getElementById('connectionStatus');
         const messagesDiv = document.getElementById('messages');
         const contextMenu = document.getElementById('contextMenu');
+        const messageInput = document.getElementById('messageInput');
+        const cancelEditBtn = document.getElementById('cancelEditBtn');
         let ws;
 
         // Variables to track interaction
         let selectedMsgId = null;
         let selectedMsgContent = null;
+        let editingMsgId = null;
 
         // 1. Fetch Chat History
         async function loadHistory() {
@@ -140,17 +148,25 @@
             };
         }
 
-        function editMessage(msgId, oldContent) {
-            const newContent = prompt("Edit your message:", oldContent);
-            if (newContent !== null && newContent !== oldContent && newContent.trim() !== "") {
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({
-                        type: "edit",
-                        msg_id: parseInt(msgId),
-                        content: newContent
-                    }));
-                }
-            }
+       function editMessage(msgId, oldContent) {
+            // Set state
+            editingMsgId = msgId;
+            
+            // Populate input
+            messageInput.value = oldContent;
+            messageInput.focus();
+            
+            // Show UI indicators
+            cancelEditBtn.classList.remove('hidden');
+            messageInput.classList.add('ring-2', 'ring-yellow-400'); // Optional: yellow ring to indicate edit
+        }
+        function cancelEdit() {
+            editingMsgId = null;
+            messageInput.value = '';
+            
+            // Hide UI indicators
+            cancelEditBtn.classList.add('hidden');
+            messageInput.classList.remove('ring-2', 'ring-yellow-400');
         }
 
         function deleteMessage(msgId) {
@@ -274,18 +290,28 @@
             e.preventDefault();
             const input = document.getElementById('messageInput');
             const value = input.value.trim();
-            
-            if (value && ws && ws.readyState === WebSocket.OPEN) {
+
+            if (!value || !ws || ws.readyState !== WebSocket.OPEN) return;
+            if (editingMsgId) {
+                // --- HANDLE EDIT ---
+                ws.send(JSON.stringify({
+                    type: "edit",
+                    msg_id: parseInt(editingMsgId),
+                    content: value
+                }));
+                cancelEdit(); // Exit edit mode
+            } else {
+                // --- HANDLE NEW MESSAGE ---
                 ws.send(JSON.stringify({
                     type: "chat",
                     content: value
                 }));
-                
+                // Optimistic append
                 appendMessage(0, value, true, currentUser.username, true);
-                input.value = '';
+                messageInput.value = '';
             }
         };
-
+            
         loadHistory();
         connect();
     </script>
