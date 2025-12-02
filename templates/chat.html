@@ -42,6 +42,9 @@
                 <h2 id="roomTitle" class="text-lg font-bold text-gray-800 leading-tight">Chat Room</h2>
                 <div id="connectionStatus" class="text-xs font-medium text-yellow-600 flex items-center gap-1">
                     <span class="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></span> Connecting...
+                    <div id="onlineUsers" class="text-xs text-gray-500 font-medium ml-4">
+    0 Online
+</div>
                 </div>
             </div>
         </div>
@@ -171,6 +174,18 @@
             ws.onmessage = (e) => {
                 const data = JSON.parse(e.data);
 
+                if (data.type === 'online_users') {
+                    const count = data.users.length;
+                    const onlineText = data.users.includes(currentUser.username) 
+                        ? `${count} Online (You, ${data.users.filter(u => u !== currentUser.username).join(', ')})`
+                        : `${count} Online`;
+                        
+                    const el = document.getElementById('onlineUsers');
+                    if(el) el.innerText = data.users.length + " Online";
+                    
+                    return; 
+                }
+
                 if (data.id && document.getElementById(`msg-${data.id}`)) {
                     return;
                 }
@@ -179,7 +194,7 @@
                     const isOwn = data.sender === currentUser.username;
 
                     if (!isOwn) {
-                        appendMessage(data.id, data.content, false, data.sender, data.media_type, data.timestamp);
+                        appendMessage(data.id, data.content, false, data.sender, data.media_type, data.timestamp, data.sender_pic);
                     } else {
                         const pending = document.querySelector('.pending-msg');
                         if (pending) {
@@ -193,7 +208,7 @@
                                 renderMessageContent(bubble, data.content, data.media_type);
                             }
                         } else {
-                            appendMessage(data.id, data.content, true, data.sender, data.media_type, data.timestamp);
+                            appendMessage(data.id, data.content, true, data.sender, data.media_type, data.timestamp, data.sender_pic);
                         }
                     }
                 } else if (data.type === 'delete') {
@@ -232,14 +247,14 @@
             if (data.messages) {
                 data.messages.forEach(msg => {
                     const isOwn = msg.sender === currentUser.username;
-                    appendMessage(msg.id, msg.content, isOwn, msg.sender, msg.media_type, formatTimeRaw(msg.created_at));
+                    appendMessage(msg.id, msg.content, isOwn, msg.sender, msg.media_type, formatTimeRaw(msg.created_at), msg.sender_pic);
                 });
             }
         }
 
         // --- MESSAGE RENDERING ---
 
-        function appendMessage(id, content, isOwn, sender, mediaType = 'text', time = '') {
+        function appendMessage(id, content, isOwn, sender, mediaType = 'text', time = '', senderPic = '') {
             if (id && document.getElementById(`msg-${id}`)) return;
 
             const div = document.createElement('div');
@@ -248,6 +263,9 @@
             div.dataset.id = id || 0;
             div.dataset.isOwn = isOwn;
             div.dataset.mediaType = mediaType;
+
+            const defaultAvatar = "https://ui-avatars.com/api/?name=" + (sender || 'User') + "&background=random";
+            const avatarUrl = senderPic || defaultAvatar;
             
             div.className = `flex flex-col message-anim mb-4 ${isOwn ? 'items-end own-message' : 'items-start peer-message'}`;
             
@@ -258,11 +276,16 @@
             const label = !isOwn ? `<span class="text-xs text-gray-500 mb-1 ml-1 block">${sender}</span>` : '';
             const bubbleColor = isOwn ? 'bg-blue-600 text-white' : 'bg-white text-gray-800 border border-gray-100 shadow-sm';
             
-            div.innerHTML = `
-                ${label}
-                <div class="bubble bubble-content relative max-w-[85%] sm:max-w-[70%] px-4 py-2 rounded-2xl ${bubbleColor} overflow-hidden">
+           div.innerHTML = `
+                <div class="flex items-end gap-2 max-w-[85%] sm:max-w-[70%] ${isOwn ? 'flex-row-reverse' : 'flex-row'}">
+                    <img src="${avatarUrl}" class="w-8 h-8 rounded-full object-cover border border-gray-200 shadow-sm flex-shrink-0">
+                    <div class="flex flex-col ${isOwn ? 'items-end' : 'items-start'}">
+                        ${!isOwn ? `<span class="text-xs text-gray-500 mb-1 ml-1">${sender}</span>` : ''}
+                        <div class="bubble bubble-content px-4 py-2 rounded-2xl ${bubbleColor} overflow-hidden">
+                        </div>
+                        <span class="text-[10px] text-gray-400 mt-1 mx-1">${time || 'Now'}</span>
+                    </div>
                 </div>
-                <span class="text-[10px] text-gray-400 mt-1 mx-1">${time || 'Now'}</span>
             `;
 
             const contentContainer = div.querySelector('.bubble-content');

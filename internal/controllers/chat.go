@@ -94,17 +94,17 @@ func (cc *ChatController) GetMessages(c *gin.Context) {
 	}
 
 	var messages []struct {
-		ID        uint      `json:"id"`
-		Content   string    `json:"content"`
-		SenderID  uint      `json:"sender_id"`
-		Username  string    `json:"sender"` // Joined field
-		CreatedAt time.Time `json:"created_at"`
+		ID         uint      `json:"id"`
+		Content    string    `json:"content"`
+		SenderID   uint      `json:"sender_id"`
+		Username   string    `json:"sender"`
+		ProfilePic string    `json:"sender_pic"`
+		CreatedAt  time.Time `json:"created_at"`
+		MediaType  string    `json:"media_type"`
 	}
 
-	// Join with users table to get usernames
-	// Order by CreatedAt ASC so oldest messages appear at top
 	err := cc.DB.Table("messages").
-		Select("messages.id, messages.content, messages.sender_id, users.username, messages.created_at").
+		Select("messages.id, messages.content, messages.sender_id, users.username,users.profile_pic, messages.created_at, messages.media_type").
 		Joins("left join users on users.id = messages.sender_id").
 		Where("messages.room_id = ? AND messages.deleted_at IS NULL", roomID).
 		Order("messages.created_at asc").
@@ -118,7 +118,6 @@ func (cc *ChatController) GetMessages(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"messages": messages})
 }
 
-// NEW: Delete Message Endpoint (Optional if handling via WS, but REST is safer for deletion)
 func (cc *ChatController) DeleteMessage(c *gin.Context) {
 	msgID := c.Param("id")
 	claims, _ := c.Get("claims")

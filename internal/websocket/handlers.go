@@ -24,6 +24,7 @@ type WSMessage struct {
 	Type      string `json:"type"`
 	ID        uint   `json:"id,omitempty"`
 	Sender    string `json:"sender"`
+	SenderPic string `json:"sender_pic"`
 	Content   string `json:"content"`
 	MediaType string `json:"media_type"`
 	Timestamp string `json:"timestamp"`
@@ -53,14 +54,11 @@ func ServeWS(c *gin.Context, db *gorm.DB) {
 			}
 		}
 	} else {
-		// Browser WebSocket can't set headers; client sends ?token=... in URL.
 		tokenStr := c.Query("token")
 		if tokenStr != "" {
-			// Replace this secret with your real secret/key retrieval
 			jwtSecret := []byte("secret123")
 
 			tok, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
-				// Optionally validate alg here
 				return jwtSecret, nil
 			})
 			if err == nil && tok != nil {
@@ -73,7 +71,6 @@ func ServeWS(c *gin.Context, db *gorm.DB) {
 					}
 				}
 			} else {
-				// token invalid — you can choose to refuse the connection here
 				log.Println("invalid token in query:", err)
 			}
 		}
@@ -93,12 +90,19 @@ func ServeWS(c *gin.Context, db *gorm.DB) {
 		return
 	}
 
+	var user models.User
+	if err := db.First(&user, userID).Error; err != nil {
+		log.Println("User not found for WS")
+		return
+	}
+
 	client := &Client{
-		Conn:     conn,
-		UserID:   userID,
-		Username: username,
-		RoomID:   uint(roomID),
-		Send:     make(chan []byte, 256),
+		Conn:       conn,
+		UserID:     userID,
+		Username:   username,
+		ProfilePic: user.ProfilePic,
+		RoomID:     uint(roomID),
+		Send:       make(chan []byte, 256),
 	}
 
 	hub.Register <- client
@@ -156,10 +160,13 @@ func (c *Client) reader(hub *Hub, db *gorm.DB) {
 						db.Save(&msg)
 
 						outMsg := WSMessage{
-							Type:    "edit",
-							ID:      msg.ID,
-							Content: msg.Content,
-							Sender:  c.Username,
+							Type:      "edit",
+							ID:        msg.ID,
+							Content:   msg.Content,
+							Sender:    c.Username,
+							SenderPic: c.ProfilePic,
+							MediaType: msg.MediaType,
+							Timestamp: time.Now().Format("15:04"),
 						}
 						jsonBytes, _ := json.Marshal(outMsg)
 						hub.Broadcast <- BroadcastMessage{RoomID: c.RoomID, Content: jsonBytes}
@@ -186,6 +193,7 @@ func (c *Client) reader(hub *Hub, db *gorm.DB) {
 				Type:      "chat",
 				ID:        dbMessage.ID,
 				Sender:    c.Username,
+				SenderPic: c.ProfilePic,
 				Content:   inMsg.Content,
 				MediaType: mediaType,
 				Timestamp: time.Now().Format("15:04"),

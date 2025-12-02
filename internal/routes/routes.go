@@ -32,6 +32,7 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
 	protected := r.Group("/api")
 	protected.Use(middleware.JWTAuth(jwtSvc))
 	{
+		protected.PUT("/profile", authCtrl.UpdateProfile)
 		protected.GET("/rooms", chatCtrl.ListRooms)
 		protected.POST("/rooms", chatCtrl.CreateRoom)
 		protected.POST("rooms/join", chatCtrl.JoinRoom)
