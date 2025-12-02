@@ -40,7 +40,12 @@ type IncomingMessage struct {
 func ServeWS(c *gin.Context, db *gorm.DB) {
 	hub := GetHub()
 
-	userIDInterface, _ := c.Get("claims")
+	userIDInterface, exists := c.Get("claims")
+	if !exists {
+		log.Println("Unauthorized WS connection attempt")
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return
+	}
 	var userID uint
 	var username string
 
@@ -93,6 +98,14 @@ func ServeWS(c *gin.Context, db *gorm.DB) {
 	var user models.User
 	if err := db.First(&user, userID).Error; err != nil {
 		log.Println("User not found for WS")
+		conn.Close()
+		return
+	}
+
+	var room models.Room
+	if err := db.First(&room, roomID).Error; err != nil {
+		log.Printf("Room %d not found", roomID)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Room not found"})
 		return
 	}
 
@@ -140,13 +153,14 @@ func (c *Client) reader(hub *Hub, db *gorm.DB) {
 			var msg models.Message
 			if result := db.Limit(1).Find(&msg, inMsg.MsgID); result.RowsAffected > 0 {
 				if msg.SenderID == c.UserID {
-					db.Delete(&msg)
-					outMsg := WSMessage{
-						Type: "delete",
-						ID:   msg.ID,
+					if err := db.Delete(&msg).Error; err == nil {
+						outMsg := WSMessage{
+							Type: "delete",
+							ID:   msg.ID,
+						}
+						jsonBytes, _ := json.Marshal(outMsg)
+						hub.Broadcast <- BroadcastMessage{RoomID: c.RoomID, Content: jsonBytes}
 					}
-					jsonBytes, _ := json.Marshal(outMsg)
-					hub.Broadcast <- BroadcastMessage{RoomID: c.RoomID, Content: jsonBytes}
 				}
 			}
 
@@ -154,22 +168,23 @@ func (c *Client) reader(hub *Hub, db *gorm.DB) {
 			var msg models.Message
 			if result := db.Limit(1).Find(&msg, inMsg.MsgID); result.RowsAffected > 0 {
 				if msg.SenderID == c.UserID {
-					// 2. Check 10-Minute Time Limit
 					if time.Since(msg.CreatedAt) <= 10*time.Minute {
 						msg.Content = inMsg.Content
-						db.Save(&msg)
+						if err := db.Save(&msg).Error; err == nil {
 
-						outMsg := WSMessage{
-							Type:      "edit",
-							ID:        msg.ID,
-							Content:   msg.Content,
-							Sender:    c.Username,
-							SenderPic: c.ProfilePic,
-							MediaType: msg.MediaType,
-							Timestamp: time.Now().Format("15:04"),
+							outMsg := WSMessage{
+								Type:      "edit",
+								ID:        msg.ID,
+								Content:   msg.Content,
+								Sender:    c.Username,
+								SenderPic: c.ProfilePic,
+								MediaType: msg.MediaType,
+								Timestamp: time.Now().Format("15:04"),
+							}
+							jsonBytes, _ := json.Marshal(outMsg)
+							hub.Broadcast <- BroadcastMessage{RoomID: c.RoomID, Content: jsonBytes}
 						}
-						jsonBytes, _ := json.Marshal(outMsg)
-						hub.Broadcast <- BroadcastMessage{RoomID: c.RoomID, Content: jsonBytes}
+
 					} else {
 						log.Println("Edit attempt blocked: time limit exceeded")
 					}
@@ -187,8 +202,10 @@ func (c *Client) reader(hub *Hub, db *gorm.DB) {
 				Content:   inMsg.Content,
 				MediaType: mediaType,
 			}
-			db.Create(&dbMessage)
-
+			if err := db.Create(&dbMessage).Error; err != nil {
+				log.Printf("Failed to save message: %v", err)
+				continue
+			}
 			outMsg := WSMessage{
 				Type:      "chat",
 				ID:        dbMessage.ID,
@@ -215,7 +232,6 @@ func (c *Client) writer() {
 		case message, ok := <-c.Send:
 			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if !ok {
-				// hub closed channel
 				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
@@ -223,7 +239,6 @@ func (c *Client) writer() {
 				return
 			}
 		case <-ticker.C:
-			// send ping
 			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
