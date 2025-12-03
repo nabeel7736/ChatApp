@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: chatapp_server
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=sanufinu786
+      - DB_NAME=chatapp
+      - DB_SSLMODE=disable
+      - JWT_SECRET=secret123
+      - PORT=8080
+    volumes:
+      - ./uploads:/root/uploads # Persist uploaded files to your local machine
+
+  db:
+    image: postgres:15-alpine
+    container_name: chatapp_db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=sanufinu786
+      - POSTGRES_DB=chatapp
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

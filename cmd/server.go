@@ -12,20 +12,17 @@ import (
 )
 
 func main() {
-	// load env
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file loaded, relying on environment variables")
 	}
 
 	cfg := config.LoadConfig()
 
-	// connect db and migrate
 	db := database.Connect(cfg)
 	if err := database.Migrate(db); err != nil {
 		log.Fatalf("failed to migrate db: %v", err)
 	}
 
-	// create router
 	r := routes.SetupRouter(db, cfg)
 
 	port := os.Getenv("PORT")
